@@ -1,0 +1,5 @@
+generated.c
+decode_standalone.c
+decode_simple.inc
+spike
+*.o

@@ -1,0 +1,2 @@
+BUILD_ISA=y
+USE_LVX_ISA=y

@@ -1,0 +1,5 @@
+# LVX ISA support for gem5.
+# See src/arch/lvx/README.md for the port design.
+
+config USE_LVX_ISA
+    bool "LVX ISA support"

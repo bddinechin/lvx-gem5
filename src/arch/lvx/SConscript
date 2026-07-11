@@ -1,0 +1,21 @@
+Import('*')
+
+if not env['CONF']['USE_LVX_ISA']:
+    Return()
+
+env.TagImplies('lvx isa', 'gem5 lib')
+env.TagImplies('isa', 'lvx isa')
+
+# Sources are added incrementally as the port is built up (Phase 1):
+#   decoder.cc   - Layer C: de-bundling + LvxStaticInst construction
+#   isa.cc       - BaseISA: register file, reset, misc regs
+#   process.cc   - SE-mode process/ABI, scall -> SyscallDesc
+#   reg_abi.cc   - argument/return register conventions (kv4-v1 ABI)
+#   faults.cc    - fault/trap handling
+#   remote_gdb.cc- GDB stub
+#   shim.cc      - Layer B runtime shim over ExecContext (Int256 + HELPERs)
+#   generated/   - MDS-generated Behavior.tuple + Decode.c, compiled as C
+#
+# e.g.:
+#   Source('decoder.cc', tags=['lvx isa'])
+#   SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])

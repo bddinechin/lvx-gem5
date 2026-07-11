@@ -37,6 +37,7 @@ menu "ISA"
 if BUILD_ISA
 
 rsource "arm/Kconfig"
+rsource "lvx/Kconfig"
 rsource "mips/Kconfig"
 rsource "power/Kconfig"
 rsource "riscv/Kconfig"

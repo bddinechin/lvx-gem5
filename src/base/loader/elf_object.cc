@@ -246,6 +246,10 @@ ElfObject::getInterpPath(const GElf_Phdr &phdr) const
 void
 ElfObject::determineArch()
 {
+    // EM_KVX (Kalray VLIW) == 256, currently reused by LVX binaries. Not
+    // defined by gem5's bundled libelf, so define it locally.
+    constexpr decltype(ehdr.e_machine) EM_LVX = 256;
+
     auto &emach = ehdr.e_machine;
     auto &eclass = ehdr.e_ident[EI_CLASS];
     auto &edata = ehdr.e_ident[EI_DATA];
@@ -274,6 +278,10 @@ ElfObject::determineArch()
         arch = Arm64;
     } else if (emach == EM_RISCV) {
         arch = (eclass == ELFCLASS64) ? Riscv64 : Riscv32;
+    } else if (emach == EM_LVX) {
+        // LVX binaries currently carry KVX's e_machine number (256); gem5
+        // recognizes 256 as LVX. LVX is LP64 only.
+        arch = Lvx64;
     } else if (emach == EM_PPC && eclass == ELFCLASS32) {
         arch = Power;
     } else if (emach == EM_PPC64 && eclass == ELFCLASS64) {

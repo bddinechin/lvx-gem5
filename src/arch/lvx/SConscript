@@ -6,16 +6,20 @@ if not env['CONF']['USE_LVX_ISA']:
 env.TagImplies('lvx isa', 'gem5 lib')
 env.TagImplies('isa', 'lvx isa')
 
-# Sources are added incrementally as the port is built up (Phase 1):
-#   decoder.cc   - Layer C: de-bundling + LvxStaticInst construction
-#   isa.cc       - BaseISA: register file, reset, misc regs
-#   process.cc   - SE-mode process/ABI, scall -> SyscallDesc
-#   reg_abi.cc   - argument/return register conventions (kv4-v1 ABI)
-#   faults.cc    - fault/trap handling
-#   remote_gdb.cc- GDB stub
-#   shim.cc      - Layer B runtime shim over ExecContext (Int256 + HELPERs)
-#   generated/   - MDS-generated Behavior.tuple + Decode.c, compiled as C
-#
-# e.g.:
-#   Source('decoder.cc', tags=['lvx isa'])
-#   SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])
+Source('isa.cc', tags=['lvx isa'])
+Source('decoder.cc', tags=['lvx isa'])
+
+SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])
+SimObject('LvxDecoder.py', sim_objects=['LvxDecoder'], tags=['lvx isa'])
+
+DebugFlag('LvxRegs', tags=['lvx isa'])
+DebugFlag('LvxDecode', tags=['lvx isa'])
+
+# Added incrementally as the port is built up (Phase 1):
+#   process.cc / LvxSeWorkload.py - SE-mode process/ABI, scall -> SyscallDesc
+#   reg_abi.cc                    - kv4-v1 ABI arg/return conventions
+#   faults.cc                     - fault/trap handling
+#   remote_gdb.cc                 - GDB stub
+#   shim.cc                       - Layer B runtime shim (Int256 + HELPERs)
+#   generated/                    - MDS Behavior.tuple + Decode.c (built as C)
+#   LvxMMU.py / LvxInterrupts.py / LvxCPU.py - to run (not just link)

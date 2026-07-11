@@ -59,6 +59,7 @@ Import('*')
 if env['CONF']['BUILD_ISA']:
     if (
         not env['CONF']['USE_ARM_ISA'] and
+        not env['CONF']['USE_LVX_ISA'] and
         not env['CONF']['USE_MIPS_ISA'] and
         not env['CONF']['USE_POWER_ISA'] and
         not env['CONF']['USE_RISCV_ISA'] and

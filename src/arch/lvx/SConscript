@@ -19,6 +19,10 @@ Source('shim.cc', tags=['lvx isa'])
 Source('generated/Decode.c', tags=['lvx isa'])
 Source('behavior.c', tags=['lvx isa'])
 
+# Operand decoder (Layer C): fills the behavior's decoded[] from the syllables,
+# reusing the MDS Operand/RegClass/Immediate tuples. Compiled as C.
+Source('operands.c', tags=['lvx isa'])
+
 SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])
 SimObject('LvxDecoder.py', sim_objects=['LvxDecoder'], tags=['lvx isa'])
 

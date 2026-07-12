@@ -4,4 +4,7 @@ Decode.c
 Behavior.tuple
 Opcode.tuple
 Register.tuple
+Operand.tuple
+RegClass.tuple
+Immediate.tuple
 helper_stubs.inc

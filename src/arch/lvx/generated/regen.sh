@@ -13,7 +13,8 @@ if [ ! -d "$SRC" ]; then
     exit 1
 fi
 
-for f in Decode.c Behavior.tuple Opcode.tuple Register.tuple; do
+for f in Decode.c Behavior.tuple Opcode.tuple Register.tuple \
+         Operand.tuple RegClass.tuple Immediate.tuple; do
     cp "$SRC/$f" "./$f"
     echo "regenerated $f"
 done

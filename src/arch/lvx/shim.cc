@@ -14,12 +14,15 @@
  */
 #include "arch/lvx/shim.hh"
 
+#include <cstring>
+
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/shim.h"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
 #include "debug/LvxDecode.hh"
+#include "mem/se_translating_port_proxy.hh"
 
 namespace gem5
 {
@@ -260,6 +263,44 @@ Behavior_writeToStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
     if (bits < 64)
         v &= (UINT64_C(1) << bits) - 1;
     writeSfr(ctx->tc, offset, v);
+}
+
+// Access byte count from the load/store byte-mask (mirrors Kalray common_load).
+static unsigned
+lvxAccessSize(uint32_t byteMask)
+{
+    if (byteMask & 0xffff0000u) return 32;
+    if (byteMask & 0x0000ff00u) return 16;
+    if (byteMask & 0x000000f0u) return 8;
+    if (byteMask & 0x0000000cu) return 4;
+    if (byteMask & 0x00000002u) return 2;
+    return 1;
+}
+
+Int256_
+Behavior_MEM_load(void *self, Int256_ addr, Int256_ byteMask,
+                  Int256_ /*modifier*/, Int256_ /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    Addr address = (Addr)addr.dwords[0];
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    Int256_ result = Int256_zero;
+    // Functional SE-mode read (AtomicSimpleCPU). TODO: route through the CPU
+    // memory system (ExecContext::readMem) for timing models.
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.readBlob(address, result.bytes, size);
+    return result;
+}
+
+void
+Behavior_MEM_store(void *self, Int256_ addr, Int256_ byteMask,
+                   Int256_ /*modifier*/, Int256_ value, Int256_ /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    Addr address = (Addr)addr.dwords[0];
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.writeBlob(address, value.bytes, size);
 }
 
 } // extern "C"

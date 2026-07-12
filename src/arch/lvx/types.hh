@@ -25,16 +25,20 @@ typedef uint32_t MachInst;
 // LVX_MAXSYLLABLES == 3 (see include/opcode/lvx.h in lvx-binutils).
 inline constexpr unsigned MaxInstSyllables = 3;
 
-// A fully-assembled single LVX instruction: its 1..3 syllables in logical
-// order (main syllable first, then immediate-extension payloads), plus the
-// count. This is the decode key handed to the MDS-generated Decode.c.
+// A bundle holds up to 2 each of BCU/ALU/LSU/EXT instructions plus up to 8 IMMX
+// extension syllables; cap generously.
+inline constexpr unsigned MaxBundleSyllables = 16;
+
+// A fully-fetched LVX *bundle*: its syllables in binary order (parallel bit of
+// the last one is 0), plus the count. This is the decode key handed to Layer C,
+// which splits the bundle into instructions, reassembles IMMX extensions, and
+// decodes each via the MDS-generated Decode.c.
 //
-// NOTE: this is the decoded *instruction*, not the whole bundle. Bundle
-// grouping and IMMX reassembly happen in the decoder (Layer C) before an
-// ExtMachInst is formed.
+// Modeling choice (see pcstate.hh / PORTING-PLAN): one LvxStaticInst == one
+// bundle, so ExtMachInst is the whole bundle, not a single instruction.
 struct ExtMachInst
 {
-    uint32_t syllables[MaxInstSyllables] = {0, 0, 0};
+    uint32_t syllables[MaxBundleSyllables] = {};
     uint8_t  nsyll = 0;
 
     bool

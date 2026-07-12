@@ -25,7 +25,10 @@ done
 # prototype into a stub body. Real implementations replace these in the shim.
 # HELPER(name) is left intact; behavior.c compiles this with
 # #define HELPER(r) Behavior_##r.
+# MEM_load/MEM_store are implemented for real in the Layer B shim (shim.cc),
+# so they must NOT get a panic stub here (that would be a duplicate definition).
 grep -E '^BehaviorDeclare\([^,]+,DECLARE\(' Behavior.tuple \
+  | grep -vE 'HELPER\((MEM_load|MEM_store)\)' \
   | sed -E 's/^BehaviorDeclare\([^,]*,DECLARE\((.*);\)\)$/\1 { lvx_behavior_unimpl(); }/' \
   | sort -u > helper_stubs.inc
 echo "generated helper_stubs.inc ($(wc -l < helper_stubs.inc) stubs)"

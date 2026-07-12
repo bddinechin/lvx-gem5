@@ -48,6 +48,13 @@ void Behavior_commitRegFiles(void *);
 
 /* Control/status storage. offset/extent/size address a run of `extent` fields
  * of `size` bits starting at `offset`. */
+/* Memory access (functional, via the SE port proxy). opnd1 = address,
+ * opnd2 = byte-mask (encodes the access size), opnd3 = modifier/coherency,
+ * opnd4 = stored value (store only), last = destination-register info (unused
+ * functionally). */
+Int256_ Behavior_MEM_load (void *, Int256_, Int256_, Int256_, Int256_);
+void    Behavior_MEM_store(void *, Int256_, Int256_, Int256_, Int256_, Int256_);
+
 Int256_ Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsigned);

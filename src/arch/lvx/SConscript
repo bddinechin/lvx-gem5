@@ -8,6 +8,7 @@ env.TagImplies('isa', 'lvx isa')
 
 Source('isa.cc', tags=['lvx isa'])
 Source('decoder.cc', tags=['lvx isa'])
+Source('static_inst.cc', tags=['lvx isa'])
 
 # Layer B runtime shim: implements the MDS core helpers (operand/register/
 # storage access) against a gem5 ThreadContext; the C behavior.c calls these.

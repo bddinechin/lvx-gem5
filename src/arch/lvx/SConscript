@@ -9,6 +9,12 @@ env.TagImplies('isa', 'lvx isa')
 Source('isa.cc', tags=['lvx isa'])
 Source('decoder.cc', tags=['lvx isa'])
 
+# MDS-generated instruction decode + behavior, plus its runtime, compiled as C
+# (the generated bodies use `this` as an ordinary parameter name). Regenerate
+# with generated/regen.sh; these files are gitignored (Kalray-copyright output).
+Source('generated/Decode.c', tags=['lvx isa'])
+Source('behavior.c', tags=['lvx isa'])
+
 SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])
 SimObject('LvxDecoder.py', sim_objects=['LvxDecoder'], tags=['lvx isa'])
 
@@ -20,6 +26,5 @@ DebugFlag('LvxDecode', tags=['lvx isa'])
 #   reg_abi.cc                    - kv4-v1 ABI arg/return conventions
 #   faults.cc                     - fault/trap handling
 #   remote_gdb.cc                 - GDB stub
-#   shim.cc                       - Layer B runtime shim (Int256 + HELPERs)
-#   generated/                    - MDS Behavior.tuple + Decode.c (built as C)
+#   shim.cc                       - Layer B runtime shim (real HELPER impls, #8)
 #   LvxMMU.py / LvxInterrupts.py / LvxCPU.py - to run (not just link)

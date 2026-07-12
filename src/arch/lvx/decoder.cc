@@ -7,8 +7,11 @@
 
 #include "arch/lvx/decoder.hh"
 
+#include "arch/lvx/behavior_iface.hh"
 #include "base/logging.hh"
+#include "base/trace.hh"
 #include "cpu/nop_static_inst.hh"
+#include "debug/LvxDecode.hh"
 #include "params/LvxDecoder.hh"
 
 namespace gem5
@@ -44,9 +47,22 @@ Decoder::moreBytes(const PCStateBase &pc, Addr fetchPC)
 StaticInstPtr
 Decoder::decode(ExtMachInst mach_inst, Addr addr)
 {
-    // STUB: real impl calls Decode_Decoding_lvx_v1_*(mach_inst.syllables) and
-    // maps the resulting Opcode to an LvxStaticInst whose execute() dispatches
-    // to the MDS-generated behavior body. Placeholder: a generic nop.
+    // Layer C (#9) will build an LvxStaticInst from the decoded Opcode whose
+    // execute() dispatches through lvxOpcodeBehavior(). For now we exercise the
+    // MDS-generated decode + dispatch path end-to-end (so it links and we can
+    // eyeball opcodes) and still return a generic nop.
+    Opcode opcode = Opcode__UNDEF;
+    switch (mach_inst.nsyll) {
+      case 1:  opcode = Decode_Decoding_lvx_v1_simple(mach_inst.syllables); break;
+      case 2:  opcode = Decode_Decoding_lvx_v1_double(mach_inst.syllables); break;
+      default: opcode = Decode_Decoding_lvx_v1_triple(mach_inst.syllables); break;
+    }
+
+    Behavior exec = lvxOpcodeBehavior(opcode, BehaviorExecute);
+    DPRINTF(LvxDecode, "decode @ %#x: syll[0]=%#010x nsyll=%u -> opcode=%u "
+            "(execute=%s)\n", addr, mach_inst.syllables[0], mach_inst.nsyll,
+            (unsigned)opcode, exec ? "yes" : "none");
+
     return nopStaticInstPtr;
 }
 

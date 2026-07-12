@@ -1,34 +1,28 @@
 #!/bin/bash
-# Regenerate the MDS BE/LAO artifacts the LVX gem5 port reuses verbatim.
-# These are Kalray-copyright generated files, kept OUT of git (see .gitignore)
-# and regenerated from the sibling lvx-mds checkout on demand.
+# Refresh the MDS-generated files this directory holds (Decode.c, the tuples,
+# behavior.c, MDT/MDT_.h, helper_stubs.inc).
+#
+# These are now produced and delivered by the MDS BE/GEM5 back-end, which owns
+# the gem5 glue (see lvx-mds/MDS/BE/GEM5). This script is a thin convenience
+# wrapper: it builds the LAO + GEM5 back-ends and installs their output here.
+#
+# The derivation logic that used to live in this script (deriving the panic
+# stubs, filtering shim-implemented helpers) now lives in
+# lvx-mds/MDS/BE/GEM5/BIN/helper-stubs.pl + lvx-family/BE/GEM5/shim-helpers.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 # lvx-mds sits alongside lvx-gem5 under lvx-csw. Override with $1 if elsewhere.
-SRC="${1:-../../../../../lvx-mds/refs/BE/LAO/lvx_v1}"
-if [ ! -d "$SRC" ]; then
-    echo "error: lvx-mds LAO output not found at '$SRC'" >&2
-    echo "usage: $0 [path/to/lvx-mds/refs/BE/LAO/lvx_v1]" >&2
+BUILD="${1:-../../../../../lvx-mds/build_lvx}"
+if [ ! -d "$BUILD/BE/GEM5" ]; then
+    echo "error: lvx-mds build dir not found at '$BUILD'" >&2
+    echo "usage: $0 [path/to/lvx-mds/build_lvx]   (run 'make config' first)" >&2
     exit 1
 fi
 
-for f in Decode.c Behavior.tuple Opcode.tuple Register.tuple \
-         Operand.tuple RegClass.tuple Immediate.tuple; do
-    cp "$SRC/$f" "./$f"
-    echo "regenerated $f"
-done
-
-# Derive uniform panic-stub definitions for every helper from Behavior.tuple's
-# declaration section. We take the extern DECLARE(...) variant of each helper
-# (the #else branch, i.e. no BehaviorDeclareAlt_* defined) and turn its
-# prototype into a stub body. Real implementations replace these in the shim.
-# HELPER(name) is left intact; behavior.c compiles this with
-# #define HELPER(r) Behavior_##r.
-# MEM_load/MEM_store are implemented for real in the Layer B shim (shim.cc),
-# so they must NOT get a panic stub here (that would be a duplicate definition).
-grep -E '^BehaviorDeclare\([^,]+,DECLARE\(' Behavior.tuple \
-  | grep -vE 'HELPER\((MEM_load|MEM_store|syscall|branch_info)\)' \
-  | sed -E 's/^BehaviorDeclare\([^,]*,DECLARE\((.*);\)\)$/\1 { lvx_behavior_unimpl(); }/' \
-  | sort -u > helper_stubs.inc
-echo "generated helper_stubs.inc ($(wc -l < helper_stubs.inc) stubs)"
+# BE/GEM5 consumes BE/LAO's output, so build LAO first, then GEM5, then install
+# GEM5 (which delivers the LAO tuples + Decode.c + the gem5 glue into here).
+make -C "$BUILD/BE/LAO" all
+make -C "$BUILD/BE/GEM5" all
+make -C "$BUILD/BE/GEM5" install
+echo "refreshed $(pwd) from MDS BE/GEM5"

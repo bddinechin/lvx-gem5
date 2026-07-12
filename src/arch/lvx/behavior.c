@@ -21,48 +21,17 @@
 
 #include "arch/lvx/int256.h"
 #include "arch/lvx/behavior_rt.h"
+#include "arch/lvx/shim.h"
 #include "arch/lvx/generated/MDT/MDT_.h"
 
 #define HELPER(routine) Behavior_##routine
 
-/* Helper definitions (panic stubs for now — see file banner / #8). These 137
- * are the "operator" helpers, derived from Behavior.tuple's declarations. */
+/* Operator-helper definitions: panic stubs for now (the SIMD/float/atomic
+ * operators, ~Phase 3). These 137 are derived from Behavior.tuple's
+ * declarations by regen.sh. The 17 *core* runtime helpers (operand/regfile/
+ * storage access) are NOT here — they are implemented in shim.cc (Layer B, #8)
+ * and declared C-linkage in shim.h, included above. */
 #include "arch/lvx/generated/helper_stubs.inc"
-
-/*
- * Core runtime helpers. Unlike the operator helpers above these are NOT
- * declared in Behavior.tuple — in Kalray's ISS they live in helpers_core.h and
- * form the fixed interface between the generated bodies and the engine
- * (operand decode, register-file and storage access). They are the LVX gem5
- * runtime shim's real job (#8): each will read/write gem5 ExecContext state.
- * For the Phase 1 link they panic; when the shim lands these move to shim.cc
- * (compiled as C++, extern "C") and are deleted from here.
- *
- * `Int256 mask` in Kalray's operandFromValue is only ever passed 0 by the
- * generated code, so we take it as a scalar.
- */
-void HELPER(commitRegFiles)(void *this) { lvx_behavior_unimpl(); }
-
-void HELPER(operandFromRegFile_GPR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandFromRegFile_PGR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandFromRegFile_QGR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandFromRegFile_SFR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-
-void HELPER(operandToRegFile_GPR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandToRegFile_PGR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandToRegFile_QGR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-void HELPER(operandToRegFile_SFR)(void *this, unsigned stage, int rank, int opnd_idx, int register_id) { lvx_behavior_unimpl(); }
-
-void HELPER(operandFromValue)(void *this, int rank, int opnd_idx, uint64_t mask, Int256_ value) { lvx_behavior_unimpl(); }
-Int256_ HELPER(operandRead)(void *this, int opnd_idx) { lvx_behavior_unimpl(); }
-
-Int256_ HELPER(readFromStorage_NPC)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size) { lvx_behavior_unimpl(); }
-Int256_ HELPER(readFromStorage_PC)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size) { lvx_behavior_unimpl(); }
-Int256_ HELPER(readFromStorage_PS)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size) { lvx_behavior_unimpl(); }
-Int256_ HELPER(readFromStorage_SFR)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size) { lvx_behavior_unimpl(); }
-
-void HELPER(writeToStorage_NPC)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size, Int256_ value) { lvx_behavior_unimpl(); }
-void HELPER(writeToStorage_SFR)(void *this, unsigned stage, unsigned offset, unsigned extent, unsigned size, Int256_ value) { lvx_behavior_unimpl(); }
 
 /* Emit the fetch_/execute_/commit_ bodies as static functions. */
 #define Behavior_FETCH

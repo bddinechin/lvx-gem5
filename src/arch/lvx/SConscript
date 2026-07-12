@@ -27,6 +27,19 @@ Source('operands.c', tags=['lvx isa'])
 SimObject('LvxISA.py', sim_objects=['LvxISA'], tags=['lvx isa'])
 SimObject('LvxDecoder.py', sim_objects=['LvxDecoder'], tags=['lvx isa'])
 
+# SE-mode workload + process (Layer D): load an LVX ELF and run it.
+Source('process.cc', tags=['lvx isa'])
+Source('se_workload.cc', tags=['lvx isa'])
+SimObject('LvxSeWorkload.py', sim_objects=['LvxSEWorkload'], tags=['lvx isa'])
+
+# Minimal SE-mode MMU + TLB (header-only C++), so a CPU can be built.
+SimObject('LvxMMU.py', sim_objects=['LvxTLB', 'LvxMMU'], tags=['lvx isa'])
+SimObject('LvxInterrupts.py', sim_objects=['LvxInterrupts'], tags=['lvx isa'])
+
+# Per-ISA CPU bindings (ArchISA/MMU/Interrupts/Decoder). Pure-Python; the
+# concrete Lvx*SimpleCPU classes come from the 'isa'-tagged base CPU objects.
+SimObject('LvxCPU.py', sim_objects=[], tags=['lvx isa'])
+
 DebugFlag('LvxRegs', tags=['lvx isa'])
 DebugFlag('LvxDecode', tags=['lvx isa'])
 

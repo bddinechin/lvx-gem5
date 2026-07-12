@@ -55,6 +55,12 @@ void Behavior_commitRegFiles(void *);
 Int256_ Behavior_MEM_load (void *, Int256_, Int256_, Int256_, Int256_);
 void    Behavior_MEM_store(void *, Int256_, Int256_, Int256_, Int256_, Int256_);
 
+/* System-call trap (scall). opnd1 = syscall number; arguments are in r0..r7,
+ * return value goes in r0 (kv4-v1 ABI). */
+void Behavior_syscall(void *, Int256_ /*number*/);
+/* Branch hint emitted by control-flow instructions; no architectural effect. */
+void Behavior_branch_info(void *, Int256_, Int256_);
+
 Int256_ Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsigned);

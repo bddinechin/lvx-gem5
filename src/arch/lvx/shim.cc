@@ -14,15 +14,20 @@
  */
 #include "arch/lvx/shim.hh"
 
+#include <unistd.h>
+
 #include <cstring>
+#include <vector>
 
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/shim.h"
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
 #include "debug/LvxDecode.hh"
 #include "mem/se_translating_port_proxy.hh"
+#include "sim/sim_exit.hh"
 
 namespace gem5
 {
@@ -301,6 +306,49 @@ Behavior_MEM_store(void *self, Int256_ addr, Int256_ byteMask,
     unsigned size = lvxAccessSize(byteMask.words[0]);
     SETranslatingPortProxy proxy(ctx->tc);
     proxy.writeBlob(address, value.bytes, size);
+}
+
+// Minimal SE-mode system-call handling. The kv4-v1 ABI passes arguments in
+// r0..r7 and returns in r0; the syscall number is the scall operand. This is a
+// milestone-scoped subset (exit, write) done inline rather than through gem5's
+// SyscallDesc machinery — TODO(#10+): route to a proper LvxISA EmuLinux table.
+void
+Behavior_syscall(void *self, Int256_ number)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ThreadContext *tc = ctx->tc;
+    uint64_t n = number.dwords[0];
+    // kv4-v1 argument registers r0..r7.
+    auto arg = [&](int i) { return (uint64_t)tc->getReg(intRegClass[i]); };
+
+    switch (n) {
+      case 1: { // __NR_exit
+        exitSimLoop("target exited", (int)arg(0));
+        break;
+      }
+      case 17: { // __NR_write(fd, buf, count)
+        int fd = (int)arg(0);
+        Addr buf = (Addr)arg(1);
+        uint64_t count = arg(2);
+        std::vector<uint8_t> data(count);
+        SETranslatingPortProxy proxy(tc);
+        if (count)
+            proxy.readBlob(buf, data.data(), count);
+        ssize_t ret = ::write(fd == 1 || fd == 2 ? fd : 1, data.data(), count);
+        tc->setReg(intRegClass[0], (uint64_t)ret);
+        break;
+      }
+      default:
+        warn("LVX: unhandled scall #%llu (ignored)\n", (unsigned long long)n);
+        tc->setReg(intRegClass[0], (uint64_t)-1);
+        break;
+    }
+}
+
+void
+Behavior_branch_info(void * /*self*/, Int256_ /*a*/, Int256_ /*b*/)
+{
+    // Branch-prediction hint from control-flow instructions; no effect here.
 }
 
 } // extern "C"

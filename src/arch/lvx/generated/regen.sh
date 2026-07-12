@@ -28,7 +28,7 @@ done
 # MEM_load/MEM_store are implemented for real in the Layer B shim (shim.cc),
 # so they must NOT get a panic stub here (that would be a duplicate definition).
 grep -E '^BehaviorDeclare\([^,]+,DECLARE\(' Behavior.tuple \
-  | grep -vE 'HELPER\((MEM_load|MEM_store)\)' \
+  | grep -vE 'HELPER\((MEM_load|MEM_store|syscall|branch_info)\)' \
   | sed -E 's/^BehaviorDeclare\([^,]*,DECLARE\((.*);\)\)$/\1 { lvx_behavior_unimpl(); }/' \
   | sort -u > helper_stubs.inc
 echo "generated helper_stubs.inc ($(wc -l < helper_stubs.inc) stubs)"

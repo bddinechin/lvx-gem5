@@ -20,3 +20,11 @@ build/LVX/gem5.opt tests/lvx/run_lvx.py compute.elf
 Expected:
 - `exit42`  → `target exited (code=42)`
 - `compute` → `target exited (code=19)`  (computes 5*3 + 4)
+
+## Bundle front-end tests (multi-instruction / multi-syllable)
+- `mk64`   → `code=188`  — a >32-bit `make` (double/triple encoding, IMMX operand)
+- `par`    → `code=188`  — two `make`s in one bundle (ALU0/ALU1), summed in the next
+- `bundle` → `code=7`    — mixed: triple `make` + a 2-instruction bundle
+
+Verified the decode matches `lvx-mbr-objdump` (instructions-per-bundle and bundle
+byte size) via `--debug-flags=LvxDecode`.

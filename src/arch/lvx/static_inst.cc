@@ -23,45 +23,133 @@ namespace LvxISA
 namespace
 {
 
-// Steering field (syllable bits 30..29): 0 BCU / 1 LSU / 2 ALU / 3 EXT.
-inline unsigned steering(uint32_t s) { return (s >> 29) & 0x3; }
-// Parallel bit (bit 31): 1 = more syllables follow in the bundle.
-inline bool parallel(uint32_t s) { return (s >> 31) & 0x1; }
+// Syllable fields. Steering is bits 30..29, IMMX tag is bits 28..27, and the
+// parallel bit (bit 31) is 1 while more syllables follow in the bundle.
+//
+// NOTE: the steering values are those of the real encoding / binutils
+// disassembler (0=BCU, 1=LSU, 2=EXT, 3=ALU). The lvx_VLIWInstructionBundling.tex
+// prose has ALU and EXT swapped (says 2=ALU/3=EXT) — it is wrong; verified
+// against actual lvx-mbr-gcc output (e.g. addw/make encode steering 3).
+enum Steering { Steer_BCU = 0, Steer_LSU = 1, Steer_EXT = 2, Steer_ALU = 3 };
 
-// Decode one syllable as a simple (single-syllable) instruction. Layer C is
-// currently scalar-only: multi-syllable (double/triple) instructions and IMMX
-// extension syllables are TODO — see the note in the ctor.
-Opcode
-decodeSimple(uint32_t syllable)
+// Issue slots, in bundle dispatch / binary order.
+enum Exu
 {
-    return Decode_Decoding_lvx_v1_simple(&syllable);
-}
+    EXU_BCU0, EXU_BCU1, EXU_ALU0, EXU_ALU1, EXU_LSU0, EXU_LSU1,
+    EXU_EXT0, EXU_EXT1, EXU_EXT2, EXU_EXT3, EXU__
+};
+
+inline unsigned steering(uint32_t s) { return (s >> 29) & 0x3; }
+inline unsigned exuTag(uint32_t s)   { return (s >> 27) & 0x3; }
+inline bool     parallelBit(uint32_t s) { return (s >> 31) & 0x1; }
+
+// One instruction being assembled from the bundle: its main syllable plus up
+// to two IMMX extension syllables, and the bundle index of the main syllable
+// (for PC-relative operands, which are based on the instruction's first
+// syllable's PC).
+struct IssuedInsn
+{
+    uint32_t opcode = 0;
+    uint32_t immx[2] = {0, 0};
+    unsigned immxCount = 0;
+    unsigned nsyll = 0;      // 0 == slot unused
+    unsigned opcodeIndex = 0;
+};
 
 } // anonymous namespace
 
+// Split a fetched bundle into its constituent instructions and decode each.
+// Mirrors binutils' lvx_v1_steer_bundle_insns (opcodes/lvx-dis.c): walk the
+// syllables in binary order, assign main syllables to issue slots by steering
+// (ALU overflow spills into the LSU slots — the TINY ops), and attach IMMX
+// syllables (steering 0, beyond the leading BCU pair) to their target ALU/LSU
+// instruction by tag; a steering-0 tag-0 syllable right after a lone BCU is
+// that branch's offset extension. Instructions are then emitted in issue order.
 LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
     : StaticInst("lvx_bundle", No_OpClass), machInst(emi)
 {
     bundleBytes = emi.nsyll * sizeof(uint32_t);
     _size = bundleBytes;
 
-    // MVP bundle split: treat each syllable as one simple instruction. This is
-    // correct for scalar -O0 code (one single-syllable instruction per bundle,
-    // no IMMX). TODO(Layer C): honor the steering order (BCU0,BCU1,ALU0,ALU1,
-    // LSU0,LSU1,EXT0,EXT1), attach trailing IMMX syllables (steering 0, at the
-    // bundle end) to their target ALU/LSU instruction, and decode double/triple
-    // encodings — see lvx_VLIWInstructionBundling.tex.
-    for (unsigned i = 0; i < emi.nsyll && numSubInsts < MaxBundleSyllables; i++) {
+    IssuedInsn issued[EXU__];
+    unsigned bcuInuse = 0, aluInuse = 0, lsuInuse = 0, extInuse = 0;
+
+    auto assign = [&](Exu exu, uint32_t syll, unsigned index) {
+        issued[exu].opcode = syll;
+        issued[exu].nsyll = 1;
+        issued[exu].opcodeIndex = index;
+    };
+
+    for (unsigned i = 0; i < emi.nsyll; i++) {
         uint32_t syll = emi.syllables[i];
-        Opcode op = decodeSimple(syll);
+        switch (steering(syll)) {
+          case Steer_BCU:
+            if (i == 0) {
+                assign(EXU_BCU0, syll, i);       // first BCU -> BCU0
+                bcuInuse++;
+            } else if (i == 1 && bcuInuse == 1) {
+                if (exuTag(syll) == 0) {         // BCU offset extension
+                    issued[EXU_BCU0].immx[0] = syll;
+                    issued[EXU_BCU0].immxCount = 1;
+                    issued[EXU_BCU0].nsyll = 2;
+                } else {
+                    assign(EXU_BCU1, syll, i);
+                }
+                bcuInuse++;
+            } else {                             // IMMX for an ALU/LSU insn
+                Exu tgt = (Exu)(EXU_ALU0 + exuTag(syll));
+                IssuedInsn &ins = issued[tgt];
+                if (ins.immxCount < 2) {
+                    ins.immx[ins.immxCount++] = syll;
+                    ins.nsyll++;
+                }
+            }
+            flags[IsControl] = true;             // a BCU slot may redirect the PC
+            break;
+
+          case Steer_ALU:                        // ALU spills ALU0,ALU1,LSU0,LSU1
+            if (aluInuse == 0)       assign(EXU_ALU0, syll, i), aluInuse++;
+            else if (aluInuse == 1)  assign(EXU_ALU1, syll, i), aluInuse++;
+            else if (lsuInuse == 0)  assign(EXU_LSU0, syll, i), lsuInuse++;
+            else if (lsuInuse == 1)  assign(EXU_LSU1, syll, i), lsuInuse++;
+            break;
+
+          case Steer_LSU:
+            if (lsuInuse == 0)       assign(EXU_LSU0, syll, i), lsuInuse++;
+            else if (lsuInuse == 1)  assign(EXU_LSU1, syll, i), lsuInuse++;
+            break;
+
+          case Steer_EXT:
+            if (extInuse < 4) assign((Exu)(EXU_EXT0 + extInuse), syll, i), extInuse++;
+            break;
+        }
+        if (!parallelBit(syll))
+            break;
+    }
+
+    // Emit instructions in issue order; assemble each one's syllable buffer
+    // (opcode then its IMMX words) and decode opcode + operands.
+    for (int exu = 0; exu < EXU__ && numSubInsts < MaxBundleSyllables; exu++) {
+        IssuedInsn &ins = issued[exu];
+        if (!ins.nsyll)
+            continue;
+        uint32_t words[MaxInstSyllables] = {};
+        unsigned n = 0;
+        words[n++] = ins.opcode;
+        for (unsigned j = 0; j < ins.immxCount && n < MaxInstSyllables; j++)
+            words[n++] = ins.immx[j];
+
+        Opcode op;
+        switch (n) {
+          case 1:  op = Decode_Decoding_lvx_v1_simple(words); break;
+          case 2:  op = Decode_Decoding_lvx_v1_double(words); break;
+          default: op = Decode_Decoding_lvx_v1_triple(words); break;
+        }
+
         SubInst &si = subInsts[numSubInsts++];
         si.opcode = (unsigned)op;
-        si.byteOffset = i * sizeof(uint32_t);
-        lvx_decode_operands(si.opcode, &emi.syllables[i], si.decoded);
-        // A BCU (steering 0) slot may redirect the PC; mark the bundle as
-        // control so the CPU honors the next-PC that execute() computes.
-        if (steering(syll) == 0)
-            flags[IsControl] = true;
+        si.byteOffset = ins.opcodeIndex * sizeof(uint32_t);
+        lvx_decode_operands(si.opcode, words, si.decoded);
     }
 }
 

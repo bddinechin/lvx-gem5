@@ -44,6 +44,47 @@
 #undef REGISTERS
 #undef REGISTER
 
+/* Per-class register-file base (the Register enum at file-relative index 0).
+ *
+ * The raw operand field encodes a register's position *within its file*, so the
+ * correct decode is `filebase + raw` (the bodies then recover the file index as
+ * `decoded[i] - filebase`).  The compact rc_<class>[] table only equals that
+ * when the class lists the whole file in order (e.g. GPR singleReg, SFR
+ * onlygetReg); it is WRONG for a view that omits the file base -- onlysetReg
+ * drops the non-settable PC, so its raw=3 ($ra, SFR index 3) mis-indexes to CS.
+ *
+ * Only the SFR file needs this today (settable-vs-readable views differ); the
+ * other files' operand classes are full-file-in-order, so they keep the compact
+ * table via a -1 sentinel (no behaviour change). */
+#define rfbase_lvx_v1_SFR      Register_lvx_v1_PC
+#define rfbase_lvx_v1_GPR      (-1)
+#define rfbase_lvx_v1_PGR      (-1)
+#define rfbase_lvx_v1_QGR      (-1)
+#define rfbase_lvx_v1_XCR      (-1)
+#define rfbase_lvx_v1_XBR      (-1)
+#define rfbase_lvx_v1_XVR      (-1)
+#define rfbase_lvx_v1_XMR      (-1)
+#define rfbase_lvx_v1_XTR      (-1)
+#define rfbase_lvx_v1_X2R      (-1)
+#define rfbase_lvx_v1_X4R      (-1)
+#define rfbase_lvx_v1_X8R      (-1)
+#define rfbase_lvx_v1_X16R     (-1)
+#define rfbase_lvx_v1_X32R     (-1)
+#define rfbase_lvx_v1_X64R     (-1)
+#define rfbase_lvx_v1_RV_BIR   (-1)
+#define rfbase_lvx_v1_RV_BIRP  (-1)
+#define rfbase_lvx_v1_RV_FPR   (-1)
+
+#define REGFILE(f)           rfbase_##f
+#define REGISTER(r)          /* nothing */
+#define REGISTERS(count, rs) /* nothing */
+#define RegClass(ID, RF, REGS, ENC, DEC, MRS)  enum { rcfilebase_##ID = (RF) };
+#include "arch/lvx/generated/RegClass.tuple"
+#undef RegClass
+#undef REGISTERS
+#undef REGISTER
+#undef REGFILE
+
 /* ------------------------------------------------------------------ *
  * 2. Immediate transforms: raw field -> sign-extended / shifted.     *
  * ------------------------------------------------------------------ */
@@ -75,6 +116,7 @@ typedef struct
     const int *rctab;
     int rccount;
     uint64_t (*immdec)(uint64_t);
+    int filebase;   /* register-file base for filebase+raw decode, or -1 */
 } OpDesc;
 
 typedef enum
@@ -87,10 +129,10 @@ typedef enum
     OperandId__NUM
 } OperandId;
 
-/* METHOD(kind, sub) fills { method, rctab, rccount, immdec }. */
-#define METHOD_RegClass(sub)  OPM_REG, rc_##sub, (int)(sizeof(rc_##sub) / sizeof(int)), 0
-#define METHOD_Immediate(sub) OPM_IMM, 0, 0, immdec_##sub
-#define METHOD_Modifier(sub)  OPM_MOD, 0, 0, 0
+/* METHOD(kind, sub) fills { method, rctab, rccount, immdec, filebase }. */
+#define METHOD_RegClass(sub)  OPM_REG, rc_##sub, (int)(sizeof(rc_##sub) / sizeof(int)), 0, rcfilebase_##sub
+#define METHOD_Immediate(sub) OPM_IMM, 0, 0, immdec_##sub, -1
+#define METHOD_Modifier(sub)  OPM_MOD, 0, 0, 0, -1
 #define METHOD(kind, sub)     METHOD_##kind(sub)
 
 static const OpDesc operand_desc[OperandId__NUM] = {
@@ -150,7 +192,14 @@ lvx_decode_operands(unsigned opcode, const uint32_t *words,
         uint64_t raw = d->field(words);
         switch (d->method) {
           case OPM_REG:
-            decoded[i] = (raw < (unsigned)d->rccount) ? (uint64_t)d->rctab[raw] : 0;
+            /* raw is the register's position within its file; decode as
+             * filebase + raw so view classes that omit the file base (e.g.
+             * onlysetReg drops PC) still resolve correctly. Classes with no
+             * base (-1) keep the compact table (full-file-in-order). */
+            if (d->filebase >= 0)
+                decoded[i] = (uint64_t)(d->filebase + (int)raw);
+            else
+                decoded[i] = (raw < (unsigned)d->rccount) ? (uint64_t)d->rctab[raw] : 0;
             break;
           case OPM_IMM:
             decoded[i] = d->immdec(raw);

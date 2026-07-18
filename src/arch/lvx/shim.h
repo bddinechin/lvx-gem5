@@ -60,6 +60,24 @@ void    Behavior_MEM_store(void *, Int256_, Int256_, Int256_, Int256_, Int256_);
 void Behavior_syscall(void *, Int256_ /*number*/);
 /* Branch hint emitted by control-flow instructions; no architectural effect. */
 void Behavior_branch_info(void *, Int256_, Int256_);
+/* Conditional-branch / conditional-move predicate: opnd1 = 4-bit bcucond code,
+ * opnd2 = the tested register value.  Returns whether the condition holds. */
+bool Behavior_bcucond(void *, Int256_ /*condcode*/, Int256_ /*value*/);
+/* SRHPC (privilege-level saved handler PC) update on RET/call return; no
+ * architectural effect in SE-mode user execution. */
+void Behavior_srhpc_update(void *);
+/* SFR access permission checks (GET/SET/WFXL/WFXM). SE-mode user execution has
+ * no privilege model, so every access is permitted. */
+bool Behavior_get_check_access (void *, Int256_, Int256_);
+bool Behavior_set_check_access (void *, Int256_, Int256_, Int256_);
+bool Behavior_wfxl_check_access(void *, Int256_, Int256_);
+bool Behavior_wfxm_check_access(void *, Int256_, Int256_);
+/* GET: return the already-loaded SFR value (opnd2), no privilege side effects. */
+Int256_ Behavior_get(void *, Int256_ /*sfr*/, Int256_ /*value*/);
+/* Integer comparison (COMP*): opnd1 = intcomp code, opnd2/opnd3 = the values;
+ * returns the boolean result. */
+bool Behavior_intcomp_32(void *, Int256_ /*code*/, Int256_, Int256_);
+bool Behavior_intcomp_64(void *, Int256_ /*code*/, Int256_, Int256_);
 
 Int256_ Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);

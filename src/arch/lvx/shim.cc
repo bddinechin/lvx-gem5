@@ -351,4 +351,99 @@ Behavior_branch_info(void * /*self*/, Int256_ /*a*/, Int256_ /*b*/)
     // Branch-prediction hint from control-flow instructions; no effect here.
 }
 
+// Conditional-branch / conditional-move predicate (CB/CBX/CMOVE...).  opnd1 is
+// the 4-bit `bcucond` modifier code, opnd2 the register value it tests against
+// zero.  Semantics mirror ../epi-csw/lao/LAO/kvx/Behavior.c:Behavior_bcucond_;
+// the code order is the Modifier.yml `bcucond` member order (D* are 64-bit
+// tests, W* are 32-bit tests of the low word).
+bool
+Behavior_bcucond(void * /*self*/, Int256_ opnd1, Int256_ opnd2)
+{
+    int64_t v = Int256_toInt64(opnd2);
+    switch ((int)Int256_toInt64(opnd1)) {
+      case  0: return v <  0;            // DLTZ
+      case  1: return v >= 0;            // DGEZ
+      case  2: return v <= 0;            // DLEZ
+      case  3: return v >  0;            // DGTZ
+      case  4: return v == 0;            // DEQZ
+      case  5: return v != 0;            // DNEZ
+      case  6: return (v & 1) != 0;      // ODD
+      case  7: return (v & 1) == 0;      // EVEN
+      case  8: return (int32_t)v <  0;   // WLTZ
+      case  9: return (int32_t)v >= 0;   // WGEZ
+      case 10: return (int32_t)v <= 0;   // WLEZ
+      case 11: return (int32_t)v >  0;   // WGTZ
+      case 12: return (int32_t)v == 0;   // WEQZ
+      case 13: return (int32_t)v != 0;   // WNEZ
+      default:
+        panic("LVX: unknown bcucond code %d", (int)Int256_toInt64(opnd1));
+    }
+}
+
+// SRHPC is a privilege-level saved-PC register updated on return; it has no
+// effect on SE-mode user execution (cf. branch_info).
+void
+Behavior_srhpc_update(void * /*self*/)
+{
+}
+
+// System-register (SFR) access permission checks.  The full model gates these
+// on the current privilege level (../epi-csw/iss_core/.../helpers_core.h); in
+// SE-mode user execution there is no privilege model, so every access the
+// program makes is permitted.  GET/SET of $ra in every function prologue/
+// epilogue go through get_check_access / set_check_access.
+bool Behavior_get_check_access (void *, Int256_, Int256_)          { return true; }
+bool Behavior_set_check_access (void *, Int256_, Int256_, Int256_) { return true; }
+bool Behavior_wfxl_check_access(void *, Int256_, Int256_)          { return true; }
+bool Behavior_wfxm_check_access(void *, Int256_, Int256_)          { return true; }
+
+// GET reads an SFR: the value is already loaded from the SFR file by the
+// behavior (readFromStorage_SFR); `get` returns it, with no per-bit privilege
+// masking or clear-on-read side effects in SE mode.  opnd2 is that value.
+Int256_
+Behavior_get(void * /*self*/, Int256_ /*sfr*/, Int256_ value)
+{
+    return value;
+}
+
+// Integer comparison (COMP*).  opnd1 is the `intcomp` modifier code, opnd2/opnd3
+// the two values.  Semantics mirror ../epi-csw/lao/LAO/kvx/Behavior.c:
+// Behavior_intcomp_NN_; the code order is the Modifier.yml `intcomp` member
+// order.  Signed vs unsigned per code; width per the _32/_64 entry point.
+static inline bool
+lvxIntcomp(int code, int64_t sa, int64_t sb, uint64_t ua, uint64_t ub)
+{
+    switch (code) {
+      case  0: return sa <  sb;             // LT
+      case  1: return sa >= sb;             // GE
+      case  2: return ua <  ub;             // LTU
+      case  3: return ua >= ub;             // GEU
+      case  4: return sa == sb;             // EQ
+      case  5: return sa != sb;             // NE
+      case  6: return (ua & ub) != 0;       // ANY
+      case  7: return (ua & ub) == 0;       // NONE
+      case  8: return sa <= sb;             // LE
+      case  9: return sa >  sb;             // GT
+      case 10: return ua <= ub;             // LEU
+      case 11: return ua >  ub;             // GTU
+      default: panic("LVX: unknown intcomp code %d", code);
+    }
+}
+
+bool
+Behavior_intcomp_64(void * /*self*/, Int256_ code, Int256_ a, Int256_ b)
+{
+    return lvxIntcomp((int)Int256_toInt64(code),
+                      Int256_toInt64(a), Int256_toInt64(b),
+                      Int256_toUInt64(a), Int256_toUInt64(b));
+}
+
+bool
+Behavior_intcomp_32(void * /*self*/, Int256_ code, Int256_ a, Int256_ b)
+{
+    return lvxIntcomp((int)Int256_toInt64(code),
+                      (int32_t)Int256_toInt64(a), (int32_t)Int256_toInt64(b),
+                      (uint32_t)Int256_toUInt64(a), (uint32_t)Int256_toUInt64(b));
+}
+
 } // extern "C"

@@ -26,10 +26,24 @@
 > Building it also required **resyncing the hand-written shim to the current
 > lvx-mds helper-width ABI** (the intervening unboxing narrowed `syscall`/
 > `branch_info`/`MEM_*`/… from `Int256_` to native types) and adding the missing
-> `CS` storage helpers. **Remaining (follow-up):** wire `LvxMinorCPU` + FU pool +
-> per-opcode `OpClass` to actually insert stalls; the lvx_v2 `bufferNReg`→N-XVR
-> source expansion (needs `MaxBundleSrcRegs` raised for buffer64Reg); and implicit
-> `scall` arg reads (r0..r7) are not yet in the operand model.
+> `CS` storage helpers.
+>
+> **`LvxMinorCPU` wired.** `LvxCPU.py` adds `LvxMinorCPU(BaseMinorCPU, LvxCPU)`;
+> the bundle now carries `IntAluOp` (not `No_OpClass`) so a MinorCPU FU accepts
+> it — a non-memory class deliberately, since the shim serves loads/stores
+> atomically inside `execute()` and MinorCPU must not expect an LSQ request.
+> `run_lvx.py` selects the CPU via `LVX_CPU` (`atomic` default → the harness stays
+> unchanged and fast; `timing`; `minor`) and adds L1 caches on the timing path so
+> the cycle count reflects the pipeline, not uncached fetch latency. Verified: a
+> loop runs functionally identically under all three (result 285, code 29) while
+> Minor reports **317 cycles vs Atomic's 27** — the reg lists driving
+> dependency/FU-latency stalls.
+>
+> **Remaining (follow-up):** per-op-class / per-result latency calibration from
+> the MDS `Scheduling` tables (the bundle gets one `IntAluOp` latency today); the
+> lvx_v2 `bufferNReg`→N-XVR source expansion (needs `MaxBundleSrcRegs` raised for
+> buffer64Reg); routing loads/stores through the timing memory path for memory-
+> latency modeling; and implicit `scall` arg reads (r0..r7).
 
 ## The problem, precisely
 

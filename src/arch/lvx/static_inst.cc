@@ -72,7 +72,13 @@ struct IssuedInsn
 // instruction by tag; a steering-0 tag-0 syllable right after a lone BCU is
 // that branch's offset extension. Instructions are then emitted in issue order.
 LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
-    : StaticInst("lvx_bundle", No_OpClass), machInst(emi)
+    // IntAluOp so a MinorCPU FU accepts the whole bundle (No_OpClass matches
+    // none). A non-memory class is deliberate: the bundle's loads/stores are
+    // served atomically inside execute() via the shim, so MinorCPU must not
+    // route it to the LSQ expecting a memory request. This gives the bundle a
+    // uniform issue latency (MinorDefaultIntFU); per-op-class / per-result
+    // latency calibration from the MDS Scheduling tables is a follow-up.
+    : StaticInst("lvx_bundle", IntAluOp), machInst(emi)
 {
     bundleBytes = emi.nsyll * sizeof(uint32_t);
     _size = bundleBytes;

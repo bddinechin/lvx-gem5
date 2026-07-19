@@ -39,11 +39,48 @@
 > Minor reports **317 cycles vs Atomic's 27** — the reg lists driving
 > dependency/FU-latency stalls.
 >
-> **Remaining (follow-up):** per-op-class / per-result latency calibration from
-> the MDS `Scheduling` tables (the bundle gets one `IntAluOp` latency today); the
-> lvx_v2 `bufferNReg`→N-XVR source expansion (needs `MaxBundleSrcRegs` raised for
-> buffer64Reg); routing loads/stores through the timing memory path for memory-
-> latency modeling; and implicit `scall` arg reads (r0..r7).
+> **FU latencies calibrated from the MDS pipeline stages.** Resource hazards need
+> no modelling (the assembler's bundling guarantees a valid bundle has none), so
+> only dependence latency matters, and it is `writeStage − readStage` from the
+> Behavior stage annotations (`operand{From,To}RegFile`'s stage argument, against
+> the Processor `pipeline`: `RR=1`, `E1=2`, … `E3=4`, `SF=16`, `SR=24`).
+> `reg-operands.pl` folds `max(write stage) − RR` into `lvx_reg_deps[op].lat`
+> (ALU 1, load 3, divide/sqrt 15, atomic RMW 23 — all cross-checked by mnemonic,
+> e.g. the 135 `SR=24` writers are exactly the `ACSWAP*`/`ASWAP*`/`AL*` atomics,
+> not a typo). The stages themselves are a generated **named enum** — BE/GEM5
+> emits `lvx_stages.h` (C `enum LvxStage`) + a Python twin from `Processor.table`,
+> and `static_inst.cc`/`LvxCPU.py` use `LVX_STAGE_* - LVX_STAGE_RR`, never a
+> literal. `LvxStaticInst` routes each bundle (max latency over its syllables) to
+> a latency-bucket FU in `LvxFUPool` whose `opLat` is that latency. Verified in a
+> cache-resident loop: a lat-2 (`maddd`) dependent chain costs ~2× the per-op
+> latency of a lat-1 (`addd`) chain (20.3 vs 12.4 cyc/iter over a 10-op body).
+>
+> **Read stage is per-source, and currently approximated.** The true latency is
+> `writeStage(producer) - readStage(that consumer's source)`. Most sources are
+> read at RR, but a **store's stored value** and a **`MADD*` accumulator** are
+> read at `E1`, so their incoming edges are 1 cycle shorter. The model assumes RR
+> for every source — **conservative** (never under-estimates; those edges
+> over-stall by exactly `E1-RR=1`). gem5 *can* model it, via `srcRegsRelativeLats
+> = readStage - RR`, but only per-FU via `MinorFUTiming`'s mask/match on the raw
+> instruction bits (which gem5 itself calls "a bit of a hack"), and per-source
+> position — so it needs the bundle split into per-sub-instruction **micro-ops**.
+>
+> **The micro-op split (scoped next step).** Each sub-instruction becomes a
+> MinorCPU micro-op with its own opClass/opLat, source list, and per-source
+> `srcRegsRelativeLats`. It also fixes the per-*result* limitation (a load and an
+> ALU result in one bundle share the bundle's max latency today). The hard part
+> is preserving **VLIW parallel semantics**: real `-O2` bundles pack e.g.
+> `make $r0=1 ; sw ...=$r0`, where the store reads the *old* `$r0` — so micro-ops
+> need a **bundle-entry register snapshot** for reads and **intra-bundle
+> dependency suppression** in the scoreboard (a parallel swap `copy $r0=$r1 ;
+> copy $r1=$r0` is unrepresentable sequentially, and neither Minor nor O3 handles
+> VLIW read/write phasing natively). This is why the port is bundle-at-a-time.
+>
+> **Other follow-ups:** the lvx_v2 `bufferNReg`→N-XVR source expansion (raise
+> `MaxBundleSrcRegs` for buffer64Reg); routing loads/stores through the timing
+> memory path; implicit `scall` arg reads; and the FP/atomic helper stubs (those
+> long-latency ops can't run functionally yet, so only the calibration, not full
+> execution, is exercised for them).
 
 ## The problem, precisely
 

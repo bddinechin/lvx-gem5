@@ -10,6 +10,7 @@
 
 #include "arch/lvx/behavior_iface.hh"
 #include "arch/lvx/generated/MDT/MDT_.h"
+#include "arch/lvx/generated/lvx_stages.h"
 #include "arch/lvx/operands.hh"
 #include "arch/lvx/pcstate.hh"
 #include "arch/lvx/reg_operands.hh"
@@ -72,12 +73,9 @@ struct IssuedInsn
 // instruction by tag; a steering-0 tag-0 syllable right after a lone BCU is
 // that branch's offset extension. Instructions are then emitted in issue order.
 LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
-    // IntAluOp so a MinorCPU FU accepts the whole bundle (No_OpClass matches
-    // none). A non-memory class is deliberate: the bundle's loads/stores are
-    // served atomically inside execute() via the shim, so MinorCPU must not
-    // route it to the LSQ expecting a memory request. This gives the bundle a
-    // uniform issue latency (MinorDefaultIntFU); per-op-class / per-result
-    // latency calibration from the MDS Scheduling tables is a follow-up.
+    // Placeholder OpClass; setUpRegs() overrides it per bundle to the latency
+    // bucket derived from the MDS pipeline stages (see there). IntAluOp here so
+    // the object is well-formed before decode.
     : StaticInst("lvx_bundle", IntAluOp), machInst(emi)
 {
     bundleBytes = emi.nsyll * sizeof(uint32_t);
@@ -211,6 +209,7 @@ LvxStaticInst::setUpRegs()
         }
     };
 
+    unsigned lat = 0;
     for (unsigned i = 0; i < numSubInsts; ++i) {
         const SubInst &si = subInsts[i];
         if (si.opcode >= (unsigned)Opcode__NUM)
@@ -218,7 +217,24 @@ LvxStaticInst::setUpRegs()
         const LvxRegDeps &d = lvx_reg_deps[si.opcode];
         for (unsigned k = 0; k < d.nsrc; ++k) add(regId(d.src[k], si.decoded), false);
         for (unsigned k = 0; k < d.ndst; ++k) add(regId(d.dst[k], si.decoded), true);
+        if (d.lat > lat) lat = d.lat;   // bundle result latency = max over syllables
     }
+
+    // Route the bundle to the MinorCPU functional unit whose opLat equals its
+    // result latency, so a dependent bundle stalls the right number of cycles.
+    // A result written at pipeline stage S has latency S - RR (lvx_stages.h);
+    // the distinct write stages are E1..E4, SF, SR, so the buckets are exactly
+    // those latencies. The OpClasses are latency-bucket routing keys matched by
+    // LvxFUPool (LvxCPU.py), not semantics -- deliberately non-memory, so
+    // MinorCPU expects no LSQ request (the shim serves loads/stores atomically
+    // inside execute()). The per-opcode lat already distinguishes e.g. FP16
+    // (E3) from FP32/FP64 (E4) FADD/FMUL/FFMA, so no per-class label is needed.
+    _opClass = lat >= LVX_STAGE_SR - LVX_STAGE_RR ? IntDivOp
+             : lat >= LVX_STAGE_SF - LVX_STAGE_RR ? FloatDivOp
+             : lat >= LVX_STAGE_E4 - LVX_STAGE_RR ? FloatMultOp
+             : lat >= LVX_STAGE_E3 - LVX_STAGE_RR ? FloatAddOp
+             : lat >= LVX_STAGE_E2 - LVX_STAGE_RR ? IntMultOp
+             :                                       IntAluOp;
 
     if (debug::LvxRegs) {
         std::stringstream ss;

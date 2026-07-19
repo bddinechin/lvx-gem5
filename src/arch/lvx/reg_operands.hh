@@ -36,13 +36,17 @@ struct LvxRegOperand
     unsigned short fixed;
 };
 
-// Per-opcode source and destination register operands.
+// Per-opcode source and destination register operands, plus the result's
+// dependence latency in cycles (write stage - read stage, from the Behavior
+// pipeline annotations): 1 for an ALU result, 3 for a load, 15 for divide/sqrt,
+// 23 for an atomic read-modify-write. A bundle takes the max over its syllables.
 struct LvxRegDeps
 {
     const LvxRegOperand *src;
     unsigned char        nsrc;
     const LvxRegOperand *dst;
     unsigned char        ndst;
+    unsigned char        lat;
 };
 
 // Defined in generated/behavior.c (compiled as C). Indexed by the Opcode enum.

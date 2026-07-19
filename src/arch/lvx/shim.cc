@@ -236,6 +236,24 @@ Behavior_readFromStorage_PS(void *self, unsigned /*stage*/, unsigned offset,
     return Int256_zero;
 }
 
+// Compute Status (CS) — per-EXU status/mode bits (e.g. CS.XMF, set by the
+// register-buffer instructions). SE-mode user code observes none of it: reads
+// return 0 and writes are dropped, mirroring PS above.
+Int256_
+Behavior_readFromStorage_CS(void *self, unsigned /*stage*/, unsigned offset,
+                            unsigned extent, unsigned /*size*/)
+{
+    (void)self; (void)offset; (void)extent;
+    return Int256_zero;
+}
+
+void
+Behavior_writeToStorage_CS(void *self, unsigned /*stage*/, unsigned /*offset*/,
+                           unsigned /*extent*/, unsigned /*size*/, Int256_ /*value*/)
+{
+    (void)self;
+}
+
 Int256_
 Behavior_readFromStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
                              unsigned extent, unsigned size)
@@ -283,11 +301,11 @@ lvxAccessSize(uint32_t byteMask)
 }
 
 Int256_
-Behavior_MEM_load(void *self, Int256_ addr, Int256_ byteMask,
-                  Int256_ /*modifier*/, Int256_ /*dri*/)
+Behavior_MEM_load(void *self, uint64_t addr, Int256_ byteMask,
+                  uint8_t /*modifier*/, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    Addr address = (Addr)addr.dwords[0];
+    Addr address = (Addr)addr;
     unsigned size = lvxAccessSize(byteMask.words[0]);
     Int256_ result = Int256_zero;
     // Functional SE-mode read (AtomicSimpleCPU). TODO: route through the CPU
@@ -298,11 +316,11 @@ Behavior_MEM_load(void *self, Int256_ addr, Int256_ byteMask,
 }
 
 void
-Behavior_MEM_store(void *self, Int256_ addr, Int256_ byteMask,
-                   Int256_ /*modifier*/, Int256_ value, Int256_ /*dri*/)
+Behavior_MEM_store(void *self, uint64_t addr, Int256_ byteMask,
+                   uint8_t /*modifier*/, Int256_ value, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    Addr address = (Addr)addr.dwords[0];
+    Addr address = (Addr)addr;
     unsigned size = lvxAccessSize(byteMask.words[0]);
     SETranslatingPortProxy proxy(ctx->tc);
     proxy.writeBlob(address, value.bytes, size);
@@ -313,11 +331,11 @@ Behavior_MEM_store(void *self, Int256_ addr, Int256_ byteMask,
 // milestone-scoped subset (exit, write) done inline rather than through gem5's
 // SyscallDesc machinery — TODO(#10+): route to a proper LvxISA EmuLinux table.
 void
-Behavior_syscall(void *self, Int256_ number)
+Behavior_syscall(void *self, uint64_t number)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     ThreadContext *tc = ctx->tc;
-    uint64_t n = number.dwords[0];
+    uint64_t n = number;
     // kv4-v1 argument registers r0..r7.
     auto arg = [&](int i) { return (uint64_t)tc->getReg(intRegClass[i]); };
 
@@ -346,7 +364,7 @@ Behavior_syscall(void *self, Int256_ number)
 }
 
 void
-Behavior_branch_info(void * /*self*/, Int256_ /*a*/, Int256_ /*b*/)
+Behavior_branch_info(void * /*self*/, uint8_t /*a*/, uint64_t /*b*/)
 {
     // Branch-prediction hint from control-flow instructions; no effect here.
 }
@@ -357,10 +375,10 @@ Behavior_branch_info(void * /*self*/, Int256_ /*a*/, Int256_ /*b*/)
 // the code order is the Modifier.yml `bcucond` member order (D* are 64-bit
 // tests, W* are 32-bit tests of the low word).
 bool
-Behavior_bcucond(void * /*self*/, Int256_ opnd1, Int256_ opnd2)
+Behavior_bcucond(void * /*self*/, uint8_t opnd1, uint64_t opnd2)
 {
-    int64_t v = Int256_toInt64(opnd2);
-    switch ((int)Int256_toInt64(opnd1)) {
+    int64_t v = (int64_t)opnd2;
+    switch (opnd1) {
       case  0: return v <  0;            // DLTZ
       case  1: return v >= 0;            // DGEZ
       case  2: return v <= 0;            // DLEZ
@@ -376,7 +394,7 @@ Behavior_bcucond(void * /*self*/, Int256_ opnd1, Int256_ opnd2)
       case 12: return (int32_t)v == 0;   // WEQZ
       case 13: return (int32_t)v != 0;   // WNEZ
       default:
-        panic("LVX: unknown bcucond code %d", (int)Int256_toInt64(opnd1));
+        panic("LVX: unknown bcucond code %d", (int)opnd1);
     }
 }
 
@@ -392,18 +410,18 @@ Behavior_srhpc_update(void * /*self*/)
 // SE-mode user execution there is no privilege model, so every access the
 // program makes is permitted.  GET/SET of $ra in every function prologue/
 // epilogue go through get_check_access / set_check_access.
-bool Behavior_get_check_access (void *, Int256_, Int256_)          { return true; }
-bool Behavior_set_check_access (void *, Int256_, Int256_, Int256_) { return true; }
-bool Behavior_wfxl_check_access(void *, Int256_, Int256_)          { return true; }
-bool Behavior_wfxm_check_access(void *, Int256_, Int256_)          { return true; }
+bool Behavior_get_check_access (void *, uint16_t, uint8_t)            { return true; }
+bool Behavior_set_check_access (void *, uint16_t, uint64_t, uint8_t) { return true; }
+bool Behavior_wfxl_check_access(void *, uint16_t, uint8_t)           { return true; }
+bool Behavior_wfxm_check_access(void *, uint16_t, uint8_t)           { return true; }
 
 // GET reads an SFR: the value is already loaded from the SFR file by the
 // behavior (readFromStorage_SFR); `get` returns it, with no per-bit privilege
 // masking or clear-on-read side effects in SE mode.  opnd2 is that value.
 Int256_
-Behavior_get(void * /*self*/, Int256_ /*sfr*/, Int256_ value)
+Behavior_get(void * /*self*/, uint16_t /*sfr*/, uint64_t value)
 {
-    return value;
+    return Int256_fromUInt64(value);
 }
 
 // Integer comparison (COMP*).  opnd1 is the `intcomp` modifier code, opnd2/opnd3
@@ -431,19 +449,15 @@ lvxIntcomp(int code, int64_t sa, int64_t sb, uint64_t ua, uint64_t ub)
 }
 
 bool
-Behavior_intcomp_64(void * /*self*/, Int256_ code, Int256_ a, Int256_ b)
+Behavior_intcomp_64(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
 {
-    return lvxIntcomp((int)Int256_toInt64(code),
-                      Int256_toInt64(a), Int256_toInt64(b),
-                      Int256_toUInt64(a), Int256_toUInt64(b));
+    return lvxIntcomp(code, (int64_t)a, (int64_t)b, a, b);
 }
 
 bool
-Behavior_intcomp_32(void * /*self*/, Int256_ code, Int256_ a, Int256_ b)
+Behavior_intcomp_32(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
 {
-    return lvxIntcomp((int)Int256_toInt64(code),
-                      (int32_t)Int256_toInt64(a), (int32_t)Int256_toInt64(b),
-                      (uint32_t)Int256_toUInt64(a), (uint32_t)Int256_toUInt64(b));
+    return lvxIntcomp(code, (int32_t)a, (int32_t)b, (uint32_t)a, (uint32_t)b);
 }
 
 } // extern "C"

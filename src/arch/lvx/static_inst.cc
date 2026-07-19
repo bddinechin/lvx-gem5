@@ -6,9 +6,15 @@
 
 #include <sstream>
 
+#include <type_traits>
+
 #include "arch/lvx/behavior_iface.hh"
+#include "arch/lvx/generated/MDT/MDT_.h"
 #include "arch/lvx/operands.hh"
 #include "arch/lvx/pcstate.hh"
+#include "arch/lvx/reg_operands.hh"
+#include "arch/lvx/regs/int.hh"
+#include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/shim.hh"
 #include "base/trace.hh"
 #include "cpu/exec_context.hh"
@@ -150,6 +156,72 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
         si.opcode = (unsigned)op;
         si.byteOffset = ins.opcodeIndex * sizeof(uint32_t);
         lvx_decode_operands(si.opcode, words, si.decoded);
+    }
+
+    setUpRegs();
+}
+
+// Build the bundle's aggregated source/destination register lists from the
+// generated lvx_reg_deps table, so the timing CPUs (Minor/O3) can compute
+// dependencies. A GPR operand's index is decoded[slot] - R0; an SFR operand's is
+// decoded[slot] - PC; a fixed register carries its number directly. XACCESSO's
+// run-time-indexed XVR reads (lvx_v2, not in this port yet) are why the operand
+// path had to carry the block operand: a bufferNReg source expands here into its
+// N aligned XVR RegIds -- the dependency the direct storage path used to hide.
+void
+LvxStaticInst::setUpRegs()
+{
+    setRegIdxArrays(
+        reinterpret_cast<RegIdArrayPtr>(
+            &std::remove_pointer_t<decltype(this)>::srcRegIdxArr),
+        reinterpret_cast<RegIdArrayPtr>(
+            &std::remove_pointer_t<decltype(this)>::destRegIdxArr));
+    _numSrcRegs = 0;
+    _numDestRegs = 0;
+
+    auto regId = [](const LvxRegOperand &o, const uint64_t *decoded) -> RegId {
+        if (o.file == LVX_RF_GPR) {
+            RegIndex i = o.slot >= 0
+                ? (RegIndex)(decoded[o.slot] - Register_lvx_v1_R0) : o.fixed;
+            return intRegClass[i];
+        }
+        RegIndex i = o.slot >= 0
+            ? (RegIndex)(decoded[o.slot] - Register_lvx_v1_PC) : o.fixed;
+        return miscRegClass[i];
+    };
+    auto add = [&](const RegId &r, bool dest) {
+        // Dedup: a register read/written by two instructions of the bundle is one
+        // dependency, and dropping the duplicate keeps a valid WAW off the list.
+        if (dest) {
+            for (int i = 0; i < _numDestRegs; ++i)
+                if (destRegIdxArr[i] == r) return;
+            if (_numDestRegs < (int)MaxBundleDestRegs)
+                setDestRegIdx(_numDestRegs++, r);
+        } else {
+            for (int i = 0; i < _numSrcRegs; ++i)
+                if (srcRegIdxArr[i] == r) return;
+            if (_numSrcRegs < (int)MaxBundleSrcRegs)
+                setSrcRegIdx(_numSrcRegs++, r);
+        }
+    };
+
+    for (unsigned i = 0; i < numSubInsts; ++i) {
+        const SubInst &si = subInsts[i];
+        if (si.opcode >= (unsigned)Opcode__NUM)
+            continue;
+        const LvxRegDeps &d = lvx_reg_deps[si.opcode];
+        for (unsigned k = 0; k < d.nsrc; ++k) add(regId(d.src[k], si.decoded), false);
+        for (unsigned k = 0; k < d.ndst; ++k) add(regId(d.dst[k], si.decoded), true);
+    }
+
+    if (debug::LvxRegs) {
+        std::stringstream ss;
+        for (int i = 0; i < _numSrcRegs; ++i)
+            ss << " " << srcRegIdxArr[i];
+        ss << " ->";
+        for (int i = 0; i < _numDestRegs; ++i)
+            ss << " " << destRegIdxArr[i];
+        DPRINTF(LvxRegs, "bundle deps: src[%d]%s\n", _numSrcRegs, ss.str());
     }
 }
 

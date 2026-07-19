@@ -11,9 +11,25 @@
 > `METHOD(%k)` now sits inside the Location, `proxyActions` also classifies `%k`
 > as a Read. **Verified value-preserving** by the `BE/LAO/TEST` differential
 > harness: 1453/1453 lvx_v2 traces identical to the pre-change generation, over
-> Kalray's real `Int256_`. The gem5 half (register lists + a stalling CPU) is
-> deferred; the large-buffer capacity limit will be resolved by **raising
-> `MaxInstSrcRegs`** (see §gem5).
+> Kalray's real `Int256_`.
+>
+> **gem5 half — foundation implemented and verified.** A `BE/GEM5` generator
+> (`reg-operands.pl`) emits `reg_operands.inc`: per opcode, the source and
+> destination register operands, parsed from the behavior bodies'
+> `operand{From,To}RegFile` / `{read,write}FromStorage` calls (sources may be read
+> in any phase — RET reads `$ra` in *execute*). `LvxStaticInst` now builds
+> `_srcRegIdx`/`_destRegIdx` from it (GPR→`intRegClass`, SFR→`miscRegClass`),
+> aggregated and deduped across a bundle's instructions. Verified with a
+> `LvxRegs` dump: `make/sllw/addw/addd` report exactly the right GPR src/dest
+> chains (immediates excluded), `RET` its `$ra` source; functional execution
+> unchanged (validation harness loops/branches/shifts still match native x86).
+> Building it also required **resyncing the hand-written shim to the current
+> lvx-mds helper-width ABI** (the intervening unboxing narrowed `syscall`/
+> `branch_info`/`MEM_*`/… from `Int256_` to native types) and adding the missing
+> `CS` storage helpers. **Remaining (follow-up):** wire `LvxMinorCPU` + FU pool +
+> per-opcode `OpClass` to actually insert stalls; the lvx_v2 `bufferNReg`→N-XVR
+> source expansion (needs `MaxBundleSrcRegs` raised for buffer64Reg); and implicit
+> `scall` arg reads (r0..r7) are not yet in the operand model.
 
 ## The problem, precisely
 

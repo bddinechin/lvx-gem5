@@ -52,36 +52,38 @@ void Behavior_commitRegFiles(void *);
  * opnd2 = byte-mask (encodes the access size), opnd3 = modifier/coherency,
  * opnd4 = stored value (store only), last = destination-register info (unused
  * functionally). */
-Int256_ Behavior_MEM_load (void *, Int256_, Int256_, Int256_, Int256_);
-void    Behavior_MEM_store(void *, Int256_, Int256_, Int256_, Int256_, Int256_);
+Int256_ Behavior_MEM_load (void *, uint64_t, Int256_, uint8_t, uint8_t);
+void    Behavior_MEM_store(void *, uint64_t, Int256_, uint8_t, Int256_, uint8_t);
 
 /* System-call trap (scall). opnd1 = syscall number; arguments are in r0..r7,
  * return value goes in r0 (kv4-v1 ABI). */
-void Behavior_syscall(void *, Int256_ /*number*/);
+void Behavior_syscall(void *, uint64_t /*number*/);
 /* Branch hint emitted by control-flow instructions; no architectural effect. */
-void Behavior_branch_info(void *, Int256_, Int256_);
+void Behavior_branch_info(void *, uint8_t, uint64_t);
 /* Conditional-branch / conditional-move predicate: opnd1 = 4-bit bcucond code,
  * opnd2 = the tested register value.  Returns whether the condition holds. */
-bool Behavior_bcucond(void *, Int256_ /*condcode*/, Int256_ /*value*/);
+bool Behavior_bcucond(void *, uint8_t /*condcode*/, uint64_t /*value*/);
 /* SRHPC (privilege-level saved handler PC) update on RET/call return; no
  * architectural effect in SE-mode user execution. */
 void Behavior_srhpc_update(void *);
 /* SFR access permission checks (GET/SET/WFXL/WFXM). SE-mode user execution has
  * no privilege model, so every access is permitted. */
-bool Behavior_get_check_access (void *, Int256_, Int256_);
-bool Behavior_set_check_access (void *, Int256_, Int256_, Int256_);
-bool Behavior_wfxl_check_access(void *, Int256_, Int256_);
-bool Behavior_wfxm_check_access(void *, Int256_, Int256_);
+bool Behavior_get_check_access (void *, uint16_t, uint8_t);
+bool Behavior_set_check_access (void *, uint16_t, uint64_t, uint8_t);
+bool Behavior_wfxl_check_access(void *, uint16_t, uint8_t);
+bool Behavior_wfxm_check_access(void *, uint16_t, uint8_t);
 /* GET: return the already-loaded SFR value (opnd2), no privilege side effects. */
-Int256_ Behavior_get(void *, Int256_ /*sfr*/, Int256_ /*value*/);
+Int256_ Behavior_get(void *, uint16_t /*sfr*/, uint64_t /*value*/);
 /* Integer comparison (COMP*): opnd1 = intcomp code, opnd2/opnd3 = the values;
  * returns the boolean result. */
-bool Behavior_intcomp_32(void *, Int256_ /*code*/, Int256_, Int256_);
-bool Behavior_intcomp_64(void *, Int256_ /*code*/, Int256_, Int256_);
+bool Behavior_intcomp_32(void *, uint8_t /*code*/, uint64_t, uint64_t);
+bool Behavior_intcomp_64(void *, uint8_t /*code*/, uint64_t, uint64_t);
 
 Int256_ Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);
 Int256_ Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsigned);
+Int256_ Behavior_readFromStorage_CS (void *, unsigned, unsigned, unsigned, unsigned);
+void    Behavior_writeToStorage_CS  (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
 Int256_ Behavior_readFromStorage_SFR(void *, unsigned, unsigned, unsigned, unsigned);
 void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, Int256_);

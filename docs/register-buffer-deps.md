@@ -1,17 +1,19 @@
 # Register-buffer dependencies: XACCESSO/XALIGNO and cycle-accurate timing
 
-> **Status (2026-07-19).** MDS half **implemented and verified**: the
-> operand-attributed `Location` (`AGGL.<storage>.<proxy>`) is in the grammar and
-> generator, XACCESSO/XALIGNO carry it, and the lvx_v2 `Behavior.tuple`
-> regenerates with the attribution while the **functional C is byte-identical**
-> (isolating diff = 24 lines, all `AGGL.XVR`→`AGGL.XVR.%2` inside S-expr
-> comments; 0 code changes; lvx_v1 byte-identical control). The gem5 half
-> (register lists + a stalling CPU) is deferred to a follow-up; the large-buffer
-> capacity limit will be resolved by **raising `MaxInstSrcRegs`** (see §gem5).
-> Note the *two-phase* split found during implementation: phase 1 (done) is pure
-> **attribution** — the address arithmetic stays hand-written; phase 2 (future)
-> is the **operand-relative** form that also *generates* base/mask from the
-> operand's block size. Only phase 1 is needed to unblock the dependency pass.
+> **Status (2026-07-19).** MDS half **implemented and verified, phases 1 and 2.**
+> Phase 1 (attribution): the operand-attributed `Location`
+> (`AGGL.<storage>.<proxy>`) is in the grammar and generator. Phase 2
+> (operand-relative generation): `blockExpand` (MDE `Opcode.pl`) rewrites the
+> attributed Location's element index into `(METHOD(%k) << log2N) + (idx & (N-1))`,
+> deriving `N` from the operand's RegClass (`count(fine file)/count(buffer class)`),
+> so the block size has one source of truth instead of a hand-written shift/mask;
+> XACCESSO/XALIGNO lost their `buffer`/`mask`/`where` arithmetic. Because
+> `METHOD(%k)` now sits inside the Location, `proxyActions` also classifies `%k`
+> as a Read. **Verified value-preserving** by the `BE/LAO/TEST` differential
+> harness: 1453/1453 lvx_v2 traces identical to the pre-change generation, over
+> Kalray's real `Int256_`. The gem5 half (register lists + a stalling CPU) is
+> deferred; the large-buffer capacity limit will be resolved by **raising
+> `MaxInstSrcRegs`** (see §gem5).
 
 ## The problem, precisely
 
@@ -125,16 +127,40 @@ is isolated) — and diff the regenerated `lvx_v2 Behavior.tuple`:
 - **lvx_v1 `Behavior.tuple` byte-identical** — the grammar addition is inert on
   the core that uses no attributed `Location` (control for the `.pm` change).
 
-### Phase 2 (future, not needed for the dependency fix): operand-*relative*
+### Phase 2 (implemented): operand-*relative* generation
 
-A later cleanup can go further and let the `Location` be *relative* to the block —
-`(AGGL.%k <idx> <ext>)` with no explicit storage — and have the back-ends
-**generate** `AGGL.<file(%k)> (ADD (SHL (METHOD.%k) log2N) (AND idx (N-1))) ext`,
-pulling `N`/`file` from the operand's RegClass. That deletes the hand-written
-`buffer`/`mask` prologue and gets the `where ∈ [base,base+N)` bound (hence the
-`Width.pm` narrowing) for free. It needs a policy for deriving the fine-grained
-target file (`XVR`) the `bufferNReg` view coarsens, which is why it is deferred —
-the attribution in phase 1 is what the gem5 dependency pass actually consumes.
+`blockExpand` (`MDS/MDD/MDE/BIN/Opcode.pl`, run right after `Normalize`) rewrites
+each attributed Location whose address is an *element index*:
+
+```
+(AGGL.XVR.%2 (READ.index_0) 1)
+  →  (AGGL.XVR.%2 (ADD (SHL (METHOD.%2) log2N) (AND (READ.index_0) (N-1))) 1)
+```
+
+`N` is derived, not written: `N = count(fine file) / count(%k's RegClass)`, where
+the fine file is the RegClass carrying `regFileName == <storage>` (here `XVR` =
+`xwordoReg`, 64 registers) and `%2`'s class is `buffer2Reg` (32) → `N = 2`,
+`log2N = 1`. So the block size has a single source of truth — the operand's
+RegClass — instead of the hand-written `WRITE.mask (CONST.N-1)` / `SHL … log2N`
+that the six `BIA<N>` prologues carried; those, and `where_0`/`where_1`, are
+deleted. `blockExpand` asserts `N` is integral and a power of two, so a mismatched
+`bufferNReg`/storage pairing fails the build loudly.
+
+Two payoffs beyond deleting the arithmetic:
+
+- **The `Width.pm` bound is now free.** The generated address is
+  `(METHOD ∈ [0,31]) << 1 + (idx & 1) ∈ [0,63]`, provably inside `XVR`'s 64
+  registers — the narrow type the analysis needs, with no hand-written `ZX.256`.
+- **`%k` becomes a tracked read.** `METHOD(%k)` now sits inside the LOAD Location,
+  so `proxyActions` (the operand read/write inference) classifies `%k` as a Read
+  at the LOAD's stage — the dependency, now visible to that inference too, not
+  only to a tree walk over slot 4.
+
+**Verified value-preserving** by the `BE/LAO/TEST` differential harness against
+Kalray's `Int256_`: the pre-change generation and the phase-2 generation produce
+**1453/1453 identical `lvx_v2` traces**. Since phase 2 changes the emitted C (the
+address arithmetic is inlined into `readFromStorage_XVR` instead of staged through
+`where_0`), the harness — not a comment-only diff — is what proves equivalence.
 
 ## The gem5 side: register lists + a timing CPU
 

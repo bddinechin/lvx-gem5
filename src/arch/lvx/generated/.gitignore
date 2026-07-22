@@ -9,5 +9,8 @@ Operand.tuple
 RegClass.tuple
 Immediate.tuple
 helper_stubs.inc
+reg_operands.inc
+lvx_stages.h
+lvx_stages.py
 behavior.c
 MDT/MDT_.h

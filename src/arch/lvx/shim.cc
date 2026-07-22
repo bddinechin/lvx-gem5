@@ -228,12 +228,18 @@ Behavior_readFromStorage_NPC(void *self, unsigned /*stage*/, unsigned offset,
 
 Int256_
 Behavior_readFromStorage_PS(void *self, unsigned /*stage*/, unsigned offset,
-                            unsigned extent, unsigned /*size*/)
+                            unsigned extent, unsigned size)
 {
-    // Processor Status bitfield read. SE mode: status bits are not modeled;
-    // return 0. TODO(#8+): back PS with a misc reg if any user code reads it.
-    (void)self; (void)offset; (void)extent;
-    return Int256_zero;
+    // Processor Status bitfield read: `offset` is a *bit* position within PS and
+    // (size * extent) the field width. SE mode models a single live bit, PS.HLE
+    // (bit 5), so hardware loops are enabled and LOOPDO does not trap; every
+    // other field reads as 0. See misc_reg::ps. TODO(#8+): back PS with a misc
+    // reg once privileged code observes more of it.
+    (void)self;
+    unsigned width = size * extent;
+    uint64_t mask = width >= 64 ? ~uint64_t{0} : ((uint64_t{1} << width) - 1);
+    uint64_t field = (misc_reg::ps::SE_MODE_VALUE >> offset) & mask;
+    return Int256_fromUInt64(field);
 }
 
 // Compute Status (CS) — per-EXU status/mode bits (e.g. CS.XMF, set by the
@@ -278,6 +284,41 @@ Behavior_writeToStorage_NPC(void *self, unsigned /*stage*/, unsigned offset,
 
 void
 Behavior_writeToStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
+                            unsigned extent, unsigned size, Int256_ value)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    uint64_t v = Int256_toUInt64(value);
+    unsigned bits = size * extent;
+    if (bits < 64)
+        v &= (UINT64_C(1) << bits) - 1;
+    writeSfr(ctx->tc, offset, v);
+}
+
+// SRS is the unified system-register storage introduced by the SFR->SRS
+// refactor; it shares the SFR numbering (PS=1, CS=4, LS=7, LE=8, LC=9, ...) and
+// therefore maps onto the same misc-reg file as the _SFR helpers above. The one
+// SE-mode exception is PS (SRS 1): it reports PS.HLE set (see misc_reg::ps) so
+// hardware loops are enabled and LOOPDO does not throw. Everything else --
+// notably CS / FP status (SRS 4) -- reads its backing store, which defaults to
+// 0, matching the pre-refactor readFromStorage_CS behavior.
+Int256_
+Behavior_readFromStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
+                             unsigned extent, unsigned size)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    assert((extent * size) < 128);
+    uint64_t v = 0;
+    for (unsigned i = 0; i < extent; ++i) {
+        uint64_t reg = readSfr(ctx->tc, offset + i);
+        if (offset + i == misc_reg::PS)
+            reg |= misc_reg::ps::SE_MODE_VALUE; // force PS.HLE in SE mode
+        v = (v << (size * i)) | reg;
+    }
+    return Int256_fromUInt64(v);
+}
+
+void
+Behavior_writeToStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
                             unsigned extent, unsigned size, Int256_ value)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
@@ -367,6 +408,14 @@ void
 Behavior_branch_info(void * /*self*/, uint8_t /*a*/, uint64_t /*b*/)
 {
     // Branch-prediction hint from control-flow instructions; no effect here.
+}
+
+void
+Behavior_invalpfb(void * /*self*/)
+{
+    // LOOPDO's hardware-loop prefetch-buffer invalidate. The ISS has no such
+    // buffer (the loop-back is driven from LS/LE/LC in static_inst.cc), so this
+    // is a functional no-op.
 }
 
 // Conditional-branch / conditional-move predicate (CB/CBX/CMOVE...).  opnd1 is

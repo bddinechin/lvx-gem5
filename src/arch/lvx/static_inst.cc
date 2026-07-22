@@ -269,9 +269,28 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
 
     // Next PC: fall-through unless a (BCU) instruction wrote NPC.
     Addr next = fallThrough;
+    bool branched = false;
     for (unsigned i = 0; i < numSubInsts; i++)
-        if (ctx[i].npcWritten)
+        if (ctx[i].npcWritten) {
             next = ctx[i].nextPC;
+            branched = true;
+        }
+
+    // Hardware-loop back-edge (the fetch-engine mechanism, not any instruction's
+    // behavior). LOOPDO merely loaded LS/LE/LC; the loop-back happens here, when
+    // the *sequential* next bundle PC reaches LE. A branch taken in this bundle
+    // wins over the loop-back (and jumps out of the loop). Mirrors the LVX rule:
+    // if LC-1 != 0 -> continue at LS, else fall through past LE; decrement LC
+    // unless already zero. With LC = trip count, count 0 is skipped at LOOPDO
+    // setup, so the zero-count infinite loop of KVX cannot arise here.
+    if (misc_reg::ps::hwLoopEnabled() && !branched &&
+        fallThrough == tc->readMiscRegNoEffect(misc_reg::LE)) {
+        uint64_t lc = tc->readMiscRegNoEffect(misc_reg::LC);
+        if (lc > 1)
+            next = tc->readMiscRegNoEffect(misc_reg::LS); // back-edge to loop top
+        if (lc != 0)
+            tc->setMiscReg(misc_reg::LC, lc - 1);
+    }
 
     std::unique_ptr<PCStateBase> pcp(xc->pcState().clone());
     PCState &pc = pcp->as<PCState>();

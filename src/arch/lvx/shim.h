@@ -60,6 +60,9 @@ void    Behavior_MEM_store(void *, uint64_t, Int256_, uint8_t, Int256_, uint8_t)
 void Behavior_syscall(void *, uint64_t /*number*/);
 /* Branch hint emitted by control-flow instructions; no architectural effect. */
 void Behavior_branch_info(void *, uint8_t, uint64_t);
+/* Invalidate the hardware-loop prefetch buffer (LOOPDO). A fetch-pipeline hint
+ * with no functional effect in the SE-mode ISS. */
+void Behavior_invalpfb(void *);
 /* Conditional-branch / conditional-move predicate: opnd1 = 4-bit bcucond code,
  * opnd2 = the tested register value.  Returns whether the condition holds. */
 bool Behavior_bcucond(void *, uint8_t /*condcode*/, uint64_t /*value*/);
@@ -85,8 +88,12 @@ Int256_ Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsig
 Int256_ Behavior_readFromStorage_CS (void *, unsigned, unsigned, unsigned, unsigned);
 void    Behavior_writeToStorage_CS  (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
 Int256_ Behavior_readFromStorage_SFR(void *, unsigned, unsigned, unsigned, unsigned);
+/* SRS: unified system-register storage (shares SFR numbering). Post SFR->SRS
+ * refactor this is the main system-register access path (PS, CS, LS/LE/LC...). */
+Int256_ Behavior_readFromStorage_SRS(void *, unsigned, unsigned, unsigned, unsigned);
 void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
+void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
 
 #ifdef __cplusplus
 } // extern "C"

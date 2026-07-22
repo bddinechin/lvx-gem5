@@ -1,0 +1,3 @@
+# Assembled test artifacts (built from the .s sources with the lvx-mbr toolchain).
+*.o
+*.elf

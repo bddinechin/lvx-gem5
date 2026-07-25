@@ -109,7 +109,7 @@ Int256_add(Int256_ a, Int256_ b)
 static inline Int256_ Int256_neg(Int256_ a) { return Int256_add(Int256_not(a), Int256_fromUInt64(1)); }
 static inline Int256_ Int256_sub(Int256_ a, Int256_ b) { return Int256_add(a, Int256_neg(b)); }
 static inline Int256_ Int256_abs(Int256_ a) { return ((int64_t)a.dwords[3] < 0) ? Int256_neg(a) : a; } // TODO: width
-static inline Int256_ Int256_mul(Int256_ a, Int256_ b) { return Int256_fromUInt128((uint128_t)a.dwords[0] * b.dwords[0]); } // TODO: full 256
+static inline Int256_ Int256_mul(Int256_ a, Int256_ b) { return Int256_fromUInt128(a.qwords[0] * b.qwords[0]); } // low 128 of product; operands pre-extended by sx/zx so signed/unsigned/mixed high halves are correct. TODO: full 256
 static inline Int256_ Int256_div(Int256_ a, Int256_ b) { return Int256_fromInt64(b.dwords[0] ? (int64_t)a.dwords[0] / (int64_t)b.dwords[0] : 0); }
 static inline Int256_ Int256_mod(Int256_ a, Int256_ b) { return Int256_fromInt64(b.dwords[0] ? (int64_t)a.dwords[0] % (int64_t)b.dwords[0] : 0); }
 static inline Int256_ Int256_divu(Int256_ a, Int256_ b) { return Int256_fromUInt64(b.dwords[0] ? a.dwords[0] / b.dwords[0] : 0); }

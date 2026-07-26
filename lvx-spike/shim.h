@@ -6,7 +6,9 @@
 #ifndef LVX_SPIKE_SHIM_H
 #define LVX_SPIKE_SHIM_H
 #include <stdint.h>
-#include "int256.h"
+/* Single source of truth for Int256_ is the real gem5 arch shim; the spike used to
+ * carry its own minimal, divergent copy. */
+#include "../src/arch/lvx/int256.h"
 
 typedef int64_t  ImmediateValue;
 typedef uint64_t OperandDecoded;
@@ -32,7 +34,7 @@ typedef struct Insn {
 } Insn;
 
 /* --- runtime API used by the generated code --- */
-void    sh_idle(void *thiz, Int256_ v);
+void    sh_idle(void *thiz, uint8_t v);   /* unboxed: idle's arg is narrowed to its demand */
 Int256_ sh_operandRead(void *thiz, int index);
 void    sh_operandFromValue(void *thiz, int rank, int index, int bias, Int256_ v);
 

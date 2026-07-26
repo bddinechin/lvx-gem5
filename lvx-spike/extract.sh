@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TUPLE="${1:-../../lvx-mds/refs/BE/LAO/lvx_v1/Behavior.tuple}"
+TUPLE="${1:-../../lvx-mds/lvx-refs/BE/LAO/lvx_v1/Behavior.tuple}"
 if [ ! -f "$TUPLE" ]; then
     echo "error: Behavior.tuple not found at '$TUPLE'" >&2
     echo "usage: $0 [path/to/Behavior.tuple]" >&2

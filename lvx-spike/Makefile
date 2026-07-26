@@ -15,7 +15,7 @@ all: run
 generated.c: extract.sh
 	./extract.sh $(TUPLE)
 
-spike: main.c shim.c shim.h int256.h generated.c
+spike: main.c shim.c shim.h ../src/arch/lvx/int256.h generated.c
 	$(CC) $(CFLAGS) -o $@ main.c shim.c
 
 run: spike

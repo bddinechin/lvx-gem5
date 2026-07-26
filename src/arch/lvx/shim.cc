@@ -329,6 +329,31 @@ Behavior_writeToStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
     writeSfr(ctx->tc, offset, v);
 }
 
+// --- lvx_v2 512-bit-SIMD register/storage stubs ---------------------------
+// The XVR (256-bit vector), XBR, and XCR register files appear only in lvx_v2's
+// byte-lane SIMD instructions. gem5's arch register model has no XVR file yet, so
+// these panic-STUBS just satisfy the linker for the gem5-lvx2 build: scalar
+// (lvx-1-subset) programs never reach them, and a real 512-bit-SIMD instruction
+// aborts with a clear message rather than silently computing garbage. gem5-lvx1
+// never references them. Wiring XVR into the register model is the follow-on step
+// for lvx_v2 SIMD execution.
+void Behavior_operandFromRegFile_XVR(void *, unsigned, int, int, int)
+{ panic("LVX: XVR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_operandFromRegFile_XBR(void *, unsigned, int, int, int)
+{ panic("LVX: XBR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_operandFromRegFile_XCR(void *, unsigned, int, int, int)
+{ panic("LVX: XCR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_operandToRegFile_XVR(void *, unsigned, int, int, int)
+{ panic("LVX: XVR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_operandToRegFile_XBR(void *, unsigned, int, int, int)
+{ panic("LVX: XBR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_operandToRegFile_XCR(void *, unsigned, int, int, int)
+{ panic("LVX: XCR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+int256_t Behavior_readFromStorage_XVR(void *, unsigned, unsigned, unsigned, unsigned)
+{ panic("LVX: XVR storage not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+void Behavior_writeToStorage_XVR(void *, unsigned, unsigned, unsigned, unsigned, int256_t)
+{ panic("LVX: XVR storage not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+
 // Access byte count from the load/store byte-mask (mirrors Kalray common_load).
 static unsigned
 lvxAccessSize(uint32_t byteMask)

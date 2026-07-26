@@ -151,9 +151,9 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
 
         Opcode op;
         switch (n) {
-          case 1:  op = Decode_Decoding_lvx_v1_simple(words); break;
-          case 2:  op = Decode_Decoding_lvx_v1_double(words); break;
-          default: op = Decode_Decoding_lvx_v1_triple(words); break;
+          case 1:  op = Decode_Decoding_simple(words); break;
+          case 2:  op = Decode_Decoding_double(words); break;
+          default: op = Decode_Decoding_triple(words); break;
         }
 
         SubInst &si = subInsts[numSubInsts++];
@@ -186,11 +186,11 @@ LvxStaticInst::setUpRegs()
     auto regId = [](const LvxRegOperand &o, const uint64_t *decoded) -> RegId {
         if (o.file == LVX_RF_GPR) {
             RegIndex i = o.slot >= 0
-                ? (RegIndex)(decoded[o.slot] - Register_lvx_v1_R0) : o.fixed;
+                ? (RegIndex)(decoded[o.slot] - Register_lvx_R0) : o.fixed;
             return intRegClass[i];
         }
         RegIndex i = o.slot >= 0
-            ? (RegIndex)(decoded[o.slot] - Register_lvx_v1_PC) : o.fixed;
+            ? (RegIndex)(decoded[o.slot] - Register_lvx_PC) : o.fixed;
         return miscRegClass[i];
     };
     auto add = [&](const RegId &r, bool dest) {

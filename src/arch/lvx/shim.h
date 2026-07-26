@@ -95,6 +95,23 @@ void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsig
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 
+/* lvx_v2 512-bit-SIMD register/storage access. The XVR vector file (256-bit) and
+ * the XBR/XCR SIMD files exist only in lvx_v2's byte-lane instructions (xpl*,
+ * xaccesso, ...). gem5's arch register model has no XVR file yet, so these are
+ * panic-STUBS: they let the shared shim link into the gem5-lvx2 executable and run
+ * the scalar (lvx-1-subset) programs correctly -- which never touch XVR -- and
+ * abort with a clear message if a genuine 512-bit-SIMD instruction executes. They
+ * are unused by gem5-lvx1. Replacing them with real XVR-file access is the next
+ * step for lvx_v2 SIMD execution (see README.md / build-cores.sh). */
+void Behavior_operandFromRegFile_XVR(void *, unsigned, int, int, int);
+void Behavior_operandFromRegFile_XBR(void *, unsigned, int, int, int);
+void Behavior_operandFromRegFile_XCR(void *, unsigned, int, int, int);
+void Behavior_operandToRegFile_XVR(void *, unsigned, int, int, int);
+void Behavior_operandToRegFile_XBR(void *, unsigned, int, int, int);
+void Behavior_operandToRegFile_XCR(void *, unsigned, int, int, int);
+int256_t Behavior_readFromStorage_XVR(void *, unsigned, unsigned, unsigned, unsigned);
+void    Behavior_writeToStorage_XVR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

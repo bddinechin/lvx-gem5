@@ -15,7 +15,7 @@
  * For each operand we run its field DECODE over the instruction's syllables,
  * then apply the METHOD: register operands map the raw index through the
  * regclass register list to a Register enum value (so the bodies'
- * `decoded[i] - Register_lvx_v1_R0` recovers the file index); immediates run
+ * `decoded[i] - Register_lvx_R0` recovers the file index); immediates run
  * the Immediate DECODE (the bodies still re-apply SX, which is idempotent);
  * modifiers pass the raw field through.
  *
@@ -55,25 +55,31 @@
  *
  * Only the SFR file needs this today (settable-vs-readable views differ); the
  * other files' operand classes are full-file-in-order, so they keep the compact
- * table via a -1 sentinel (no behaviour change). */
-#define rfbase_lvx_v1_SFR      Register_lvx_v1_PC
-#define rfbase_lvx_v1_GPR      (-1)
-#define rfbase_lvx_v1_PGR      (-1)
-#define rfbase_lvx_v1_QGR      (-1)
-#define rfbase_lvx_v1_XCR      (-1)
-#define rfbase_lvx_v1_XBR      (-1)
-#define rfbase_lvx_v1_XVR      (-1)
-#define rfbase_lvx_v1_XMR      (-1)
-#define rfbase_lvx_v1_XTR      (-1)
-#define rfbase_lvx_v1_X2R      (-1)
-#define rfbase_lvx_v1_X4R      (-1)
-#define rfbase_lvx_v1_X8R      (-1)
-#define rfbase_lvx_v1_X16R     (-1)
-#define rfbase_lvx_v1_X32R     (-1)
-#define rfbase_lvx_v1_X64R     (-1)
-#define rfbase_lvx_v1_RV_BIR   (-1)
-#define rfbase_lvx_v1_RV_BIRP  (-1)
-#define rfbase_lvx_v1_RV_FPR   (-1)
+ * table via a -1 sentinel (no behaviour change).
+ *
+ * The register-file names are BARE (SFR, GPR, ...), not core-prefixed: RegClass.def
+ * emits REGFILE(SFR) and Register_lvx_PC is the family-qualified name from lvx_enums.h
+ * (same in both cores), so this file is identical for whichever core's generated/ dir
+ * is compiled in -- that
+ * is what lets one src/ tree build both gem5-lvx1 and gem5-lvx2.  The set below is
+ * the union over both cores (they share it exactly, per the MDF merged RegClass
+ * table); a core that adds a register file would fail to compile here until listed.
+ * Register_lvx_PC is the family-qualified register name from lvx_enums.h. */
+#define rfbase_SFR      Register_lvx_PC
+#define rfbase_GPR      (-1)
+#define rfbase_PGR      (-1)
+#define rfbase_QGR      (-1)
+#define rfbase_XCR      (-1)
+#define rfbase_XBR      (-1)
+#define rfbase_XVR      (-1)
+#define rfbase_XMR      (-1)
+#define rfbase_XTR      (-1)
+#define rfbase_X2R      (-1)
+#define rfbase_X4R      (-1)
+#define rfbase_X8R      (-1)
+#define rfbase_X16R     (-1)
+#define rfbase_X32R     (-1)
+#define rfbase_X64R     (-1)
 
 #define REGFILE(f)           rfbase_##f
 #define REGISTER(r)          /* nothing */

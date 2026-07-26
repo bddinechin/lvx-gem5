@@ -15,10 +15,12 @@ extern "C" {
 #include "arch/lvx/generated/lvx_enums.h"
 
 // Per-encoding-space decoders (from Decode.c). Each maps a raw syllable buffer
-// to an Opcode enum value (Opcode__UNDEF if nothing matches).
-Opcode Decode_Decoding_lvx_v1_simple(const void *buffer);
-Opcode Decode_Decoding_lvx_v1_double(const void *buffer);
-Opcode Decode_Decoding_lvx_v1_triple(const void *buffer);
+// to an Opcode enum value (Opcode__UNDEF if nothing matches). The entry names are
+// core-agnostic (Decode.pl strips the core prefix), so this header is identical for
+// whichever core's generated/ dir is compiled in -- one src/ tree, two binaries.
+Opcode Decode_Decoding_simple(const void *buffer);
+Opcode Decode_Decoding_double(const void *buffer);
+Opcode Decode_Decoding_triple(const void *buffer);
 
 // Dispatch table (from behavior.c): [opcode][phase], phase 0=fetch, 1=execute,
 // 2=commit. Entries for opcodes without a body are null.

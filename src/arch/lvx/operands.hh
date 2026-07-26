@@ -16,7 +16,7 @@ extern "C" {
 // Fill decoded[] (in operand-set order) for `opcode` from the instruction's
 // syllables `words`. decoded[] must have room for the opcode's operand count
 // (<= 8 for scalar LVX). Register operands become Register enum values; the
-// behavior bodies recover the file index via `decoded[i] - Register_lvx_v1_*`.
+// behavior bodies recover the file index via `decoded[i] - Register_lvx_*`.
 void lvx_decode_operands(unsigned opcode, const uint32_t *words,
                          OperandDecoded *decoded);
 

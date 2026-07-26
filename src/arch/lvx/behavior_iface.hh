@@ -12,7 +12,7 @@
 extern "C" {
 
 #include "arch/lvx/behavior_rt.h"
-#include "arch/lvx/generated/MDT/MDT_.h"
+#include "arch/lvx/generated/lvx_enums.h"
 
 // Per-encoding-space decoders (from Decode.c). Each maps a raw syllable buffer
 // to an Opcode enum value (Opcode__UNDEF if nothing matches).

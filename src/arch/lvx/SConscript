@@ -15,8 +15,8 @@ Source('static_inst.cc', tags=['lvx isa'])
 Source('shim.cc', tags=['lvx isa'])
 
 # MDS-generated instruction decode + behavior, plus its runtime, compiled as C
-# (the generated bodies use `this` as an ordinary parameter name). Regenerate
-# with generated/regen.sh; these files are gitignored (Kalray-copyright output).
+# (the generated bodies use `this` as an ordinary parameter name). Delivered by
+# `make -C lvx-mds/build_lvx/BE/GEM5 install`; the generated/ dir is gitignored.
 Source('generated/Decode.c', tags=['lvx isa'])
 Source('generated/behavior.c', tags=['lvx isa'])
 

@@ -1,16 +1,5 @@
 # Everything in this directory is delivered by the MDS BE/GEM5 back-end
-# (`make -C lvx-mds/build_lvx/BE/GEM5 install`, or ./regen.sh) — Kalray-copyright
-# generated code + gem5 glue, kept out of git.
-Decode.c
-Behavior.tuple
-Opcode.tuple
-Register.tuple
-Operand.tuple
-RegClass.tuple
-Immediate.tuple
-helper_stubs.inc
-reg_operands.inc
-lvx_stages.h
-lvx_stages.py
-behavior.c
-MDT/MDT_.h
+# (`make -C lvx-mds/build_lvx/BE/GEM5 install`) — generated code + gem5 glue, kept
+# out of git. Ignore it all except this file.
+*
+!.gitignore

@@ -9,7 +9,7 @@
 #include <type_traits>
 
 #include "arch/lvx/behavior_iface.hh"
-#include "arch/lvx/generated/MDT/MDT_.h"
+#include "arch/lvx/generated/lvx_enums.h"
 #include "arch/lvx/generated/lvx_stages.h"
 #include "arch/lvx/operands.hh"
 #include "arch/lvx/pcstate.hh"

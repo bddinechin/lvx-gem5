@@ -26,7 +26,7 @@
 #include <stdint.h>
 
 #include "arch/lvx/behavior_rt.h"          /* OperandDecoded */
-#include "arch/lvx/generated/MDT/MDT_.h"   /* Opcode, Register enums */
+#include "arch/lvx/generated/lvx_enums.h"   /* Opcode, Register enums */
 
 /* The tuples wrap each extraction expression as DECODE(<stmts>); unwrap it to
  * the bare statements. (ENCODE(...) fields are never used here.) */
@@ -39,7 +39,7 @@
 #define REGISTERS(count, rs) rs
 #define RegClass(ID, REGFILE, REGS, ENC, DEC, MRS) \
     static const int rc_##ID[] = { REGS };
-#include "arch/lvx/generated/RegClass.tuple"
+#include "arch/lvx/generated/RegClass.def"
 #undef RegClass
 #undef REGISTERS
 #undef REGISTER
@@ -79,7 +79,7 @@
 #define REGISTER(r)          /* nothing */
 #define REGISTERS(count, rs) /* nothing */
 #define RegClass(ID, RF, REGS, ENC, DEC, MRS)  enum { rcfilebase_##ID = (RF) };
-#include "arch/lvx/generated/RegClass.tuple"
+#include "arch/lvx/generated/RegClass.def"
 #undef RegClass
 #undef REGISTERS
 #undef REGISTER
@@ -90,7 +90,7 @@
  * ------------------------------------------------------------------ */
 #define Immediate(ID, MN, MX, EX, RL, EN, DE) \
     static uint64_t immdec_##ID(uint64_t VALUE) { DE; return VALUE; }
-#include "arch/lvx/generated/Immediate.tuple"
+#include "arch/lvx/generated/Immediate.def"
 #undef Immediate
 
 /* ------------------------------------------------------------------ *
@@ -100,7 +100,7 @@
     static uint64_t opfield_##ID(const uint32_t *WORDS) \
     { uint64_t VALUE = 0; (void)WORDS; DEC; return VALUE; }
 #define Operands(ID, OPS, REL, ENC, DEC) /* handled below */
-#include "arch/lvx/generated/Operand.tuple"
+#include "arch/lvx/generated/Operand.def"
 #undef Operand
 #undef Operands
 
@@ -123,7 +123,7 @@ typedef enum
 {
 #define Operand(ID, MTH, WT, ENC, DEC) OperandId_##ID,
 #define Operands(ID, OPS, REL, ENC, DEC)
-#include "arch/lvx/generated/Operand.tuple"
+#include "arch/lvx/generated/Operand.def"
 #undef Operand
 #undef Operands
     OperandId__NUM
@@ -138,7 +138,7 @@ typedef enum
 static const OpDesc operand_desc[OperandId__NUM] = {
 #define Operand(ID, MTH, WT, ENC, DEC) [OperandId_##ID] = { opfield_##ID, MTH },
 #define Operands(ID, OPS, REL, ENC, DEC)
-#include "arch/lvx/generated/Operand.tuple"
+#include "arch/lvx/generated/Operand.def"
 #undef Operand
 #undef Operands
 };
@@ -156,7 +156,7 @@ static const OpDesc operand_desc[OperandId__NUM] = {
 #define OPERANDS(n, list) list
 #define Operand(ID, MTH, WT, ENC, DEC)
 #define Operands(ID, OPS, REL, ENC, DEC) static const int opset_##ID[] = { OPS -1 };
-#include "arch/lvx/generated/Operand.tuple"
+#include "arch/lvx/generated/Operand.def"
 #undef Operands
 #undef Operand
 #undef OPERANDS
@@ -170,7 +170,7 @@ static const int opset__UNDEF[] = { -1 };
 #define OPERANDS(set) opset_##set
 static const int *const opcode_opset[Opcode__NUM] = {
 #define Opcode(ID, SCH, DC, CW, OPS, INC, MN, SY, AA) [Opcode_##ID] = OPS,
-#include "arch/lvx/generated/Opcode.tuple"
+#include "arch/lvx/generated/Opcode.def"
 #undef Opcode
 };
 #undef OPERANDS

@@ -95,14 +95,12 @@ void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsig
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 
-/* lvx_v2 512-bit-SIMD register/storage access. The XVR vector file (256-bit) and
- * the XBR/XCR SIMD files exist only in lvx_v2's byte-lane instructions (xpl*,
- * xaccesso, ...). gem5's arch register model has no XVR file yet, so these are
- * panic-STUBS: they let the shared shim link into the gem5-lvx2 executable and run
- * the scalar (lvx-1-subset) programs correctly -- which never touch XVR -- and
- * abort with a clear message if a genuine 512-bit-SIMD instruction executes. They
- * are unused by gem5-lvx1. Replacing them with real XVR-file access is the next
- * step for lvx_v2 SIMD execution (see README.md / build-cores.sh). */
+/* lvx_v2 vector-file access. XVR (256-bit), XBR (128-bit) and XCR (64-bit) are
+ * views of the LVX vector register file (gem5 vecRegClass, regs/vec.hh): all XRS
+ * 64-bit cells, XVR i = cells [4i..4i+3]. The operand{From,To}RegFile_* helpers
+ * load/commit an operand slot (register_id is file-relative); read/writeFromStorage
+ * are the run-time-indexed cell accesses (xlo/xso qindex forms). Implemented in
+ * shim.cc over the VecRegContainer; unused by gem5-lvx1. */
 void Behavior_operandFromRegFile_XVR(void *, unsigned, int, int, int);
 void Behavior_operandFromRegFile_XBR(void *, unsigned, int, int, int);
 void Behavior_operandFromRegFile_XCR(void *, unsigned, int, int, int);

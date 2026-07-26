@@ -21,6 +21,7 @@
 
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
+#include "arch/lvx/regs/vec.hh"
 #include "arch/lvx/shim.h"
 #include "base/logging.hh"
 #include "base/trace.hh"
@@ -58,6 +59,51 @@ static inline void
 writeSfr(ThreadContext *tc, unsigned idx, uint64_t val)
 {
     tc->setMiscReg(idx, val);
+}
+
+// --- LVX vector file (XVR/XBR/XCR), all views of the XRS 64-bit cells ----------
+// XVR reg i is XRS cells [4i..4i+3] = one 256-bit VecRegContainer; XBR i is cells
+// [2i..2i+1]; XCR i is cell [i]. Lane order is little-endian (cell 4i == dword 0).
+
+// Read/write a whole 256-bit XVR register (index i, 0..63).
+static inline int256_t
+readXvr(ThreadContext *tc, int i)
+{
+    VecRegContainer c;
+    tc->getReg(vecRegClass[i], &c);
+    const uint64_t *l = c.as<uint64_t>();
+    int256_t v;
+    for (int k = 0; k < 4; k++) v.dwords[k] = l[k];
+    return v;
+}
+
+static inline void
+writeXvr(ThreadContext *tc, int i, int256_t v)
+{
+    VecRegContainer c;
+    uint64_t *l = c.as<uint64_t>();
+    for (int k = 0; k < 4; k++) l[k] = v.dwords[k];
+    tc->setReg(vecRegClass[i], &c);
+}
+
+// Read/write a single 64-bit XRS cell (the XCR granularity), addressing the
+// containing XVR register and its lane. Writes are read-modify-write so the
+// other lanes of the container are preserved.
+static inline uint64_t
+readXrsCell(ThreadContext *tc, unsigned cell)
+{
+    VecRegContainer c;
+    tc->getReg(vecRegClass[cell / vec_reg::LanesPerReg], &c);
+    return c.as<uint64_t>()[cell % vec_reg::LanesPerReg];
+}
+
+static inline void
+writeXrsCell(ThreadContext *tc, unsigned cell, uint64_t val)
+{
+    VecRegContainer c;
+    tc->getReg(vecRegClass[cell / vec_reg::LanesPerReg], &c);
+    c.as<uint64_t>()[cell % vec_reg::LanesPerReg] = val;
+    tc->setReg(vecRegClass[cell / vec_reg::LanesPerReg], &c);
 }
 
 // --- phase driver -------------------------------------------------------------
@@ -329,30 +375,98 @@ Behavior_writeToStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
     writeSfr(ctx->tc, offset, v);
 }
 
-// --- lvx_v2 512-bit-SIMD register/storage stubs ---------------------------
-// The XVR (256-bit vector), XBR, and XCR register files appear only in lvx_v2's
-// byte-lane SIMD instructions. gem5's arch register model has no XVR file yet, so
-// these panic-STUBS just satisfy the linker for the gem5-lvx2 build: scalar
-// (lvx-1-subset) programs never reach them, and a real 512-bit-SIMD instruction
-// aborts with a clear message rather than silently computing garbage. gem5-lvx1
-// never references them. Wiring XVR into the register model is the follow-on step
-// for lvx_v2 SIMD execution.
-void Behavior_operandFromRegFile_XVR(void *, unsigned, int, int, int)
-{ panic("LVX: XVR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_operandFromRegFile_XBR(void *, unsigned, int, int, int)
-{ panic("LVX: XBR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_operandFromRegFile_XCR(void *, unsigned, int, int, int)
-{ panic("LVX: XCR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_operandToRegFile_XVR(void *, unsigned, int, int, int)
-{ panic("LVX: XVR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_operandToRegFile_XBR(void *, unsigned, int, int, int)
-{ panic("LVX: XBR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_operandToRegFile_XCR(void *, unsigned, int, int, int)
-{ panic("LVX: XCR register file not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-int256_t Behavior_readFromStorage_XVR(void *, unsigned, unsigned, unsigned, unsigned)
-{ panic("LVX: XVR storage not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
-void Behavior_writeToStorage_XVR(void *, unsigned, unsigned, unsigned, unsigned, int256_t)
-{ panic("LVX: XVR storage not modeled (lvx_v2 512-bit SIMD not yet supported)"); }
+// --- lvx_v2 vector file access (XVR/XBR/XCR) -----------------------------------
+// These load an operand slot from / commit it to the LVX vector file, mirroring
+// the GPR/PGR/QGR helpers above: register_id is the file-relative index (the
+// behavior bodies already subtracted the file base). XVR is 256-bit (4 XRS
+// cells), XBR 128-bit (2 cells), XCR 64-bit (1 cell); lane order little-endian.
+
+void
+Behavior_operandFromRegFile_XVR(void *self, unsigned /*stage*/, int /*rank*/,
+                                int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ctx->operands[opnd_idx].value = readXvr(ctx->tc, register_id);
+    ctx->operands[opnd_idx].flags = AccessNone;
+}
+
+void
+Behavior_operandFromRegFile_XBR(void *self, unsigned /*stage*/, int /*rank*/,
+                                int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned cell = 2u * register_id;
+    ctx->operands[opnd_idx].value = int256_make(
+        readXrsCell(ctx->tc, cell), readXrsCell(ctx->tc, cell + 1), 0, 0);
+    ctx->operands[opnd_idx].flags = AccessNone;
+}
+
+void
+Behavior_operandFromRegFile_XCR(void *self, unsigned /*stage*/, int /*rank*/,
+                                int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ctx->operands[opnd_idx].value =
+        int256_fromUInt64(readXrsCell(ctx->tc, register_id));
+    ctx->operands[opnd_idx].flags = AccessNone;
+}
+
+void
+Behavior_operandToRegFile_XVR(void *self, unsigned /*stage*/, int /*rank*/,
+                              int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!(ctx->operands[opnd_idx].flags & AccessWrite))
+        return;
+    writeXvr(ctx->tc, register_id, ctx->operands[opnd_idx].value);
+}
+
+void
+Behavior_operandToRegFile_XBR(void *self, unsigned /*stage*/, int /*rank*/,
+                              int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!(ctx->operands[opnd_idx].flags & AccessWrite))
+        return;
+    unsigned cell = 2u * register_id;
+    writeXrsCell(ctx->tc, cell,     ctx->operands[opnd_idx].value.dwords[0]);
+    writeXrsCell(ctx->tc, cell + 1, ctx->operands[opnd_idx].value.dwords[1]);
+}
+
+void
+Behavior_operandToRegFile_XCR(void *self, unsigned /*stage*/, int /*rank*/,
+                              int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!(ctx->operands[opnd_idx].flags & AccessWrite))
+        return;
+    writeXrsCell(ctx->tc, register_id, ctx->operands[opnd_idx].value.dwords[0]);
+}
+
+// Run-time-indexed XRS access (the xlo/xso qindex forms, XPL* byte-lane ops):
+// `offset` is an XRS cell index, and the access spans (extent*size) bits ==
+// (extent*size)/64 cells from there, little-endian into the int256_t limbs.
+int256_t
+Behavior_readFromStorage_XVR(void *self, unsigned /*stage*/, unsigned offset,
+                             unsigned extent, unsigned size)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned ncells = (extent * size + 63) / 64;
+    int256_t v = int256_zero;
+    for (unsigned i = 0; i < ncells && i < 4; i++)
+        v.dwords[i] = readXrsCell(ctx->tc, offset + i);
+    return v;
+}
+
+void
+Behavior_writeToStorage_XVR(void *self, unsigned /*stage*/, unsigned offset,
+                            unsigned extent, unsigned size, int256_t value)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned ncells = (extent * size + 63) / 64;
+    for (unsigned i = 0; i < ncells && i < 4; i++)
+        writeXrsCell(ctx->tc, offset + i, value.dwords[i]);
+}
 
 // Access byte count from the load/store byte-mask (mirrors Kalray common_load).
 static unsigned

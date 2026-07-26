@@ -7,6 +7,7 @@
 
 #include "arch/lvx/isa.hh"
 
+#include "arch/lvx/regs/vec.hh"
 #include "cpu/thread_context.hh"
 #include "params/LvxISA.hh"
 
@@ -20,8 +21,8 @@ namespace
 // Empty placeholders for register classes LVX does not model yet (scalar
 // milestone). gem5 indexes _regClasses by RegClassType, so every type must have
 // an entry, in enum order: Int, Float, Vec, VecElem, VecPred, Mat, CC, Misc.
+// The Vec class is the real LVX vector file (XVR/XBR/XCR); see regs/vec.hh.
 constexpr RegClass floatRegClass(FloatRegClass, FloatRegClassName, 0, debug::LvxRegs);
-constexpr RegClass vecRegClass(VecRegClass, VecRegClassName, 0, debug::LvxRegs);
 constexpr RegClass vecElemClass(VecElemClass, VecElemClassName, 0, debug::LvxRegs);
 constexpr RegClass vecPredRegClass(VecPredRegClass, VecPredRegClassName, 0, debug::LvxRegs);
 constexpr RegClass matRegClass(MatRegClass, MatRegClassName, 0, debug::LvxRegs);
@@ -78,6 +79,13 @@ ISA::copyRegsFrom(ThreadContext *src)
 {
     for (auto &id : intRegClass)
         tc->setReg(id, src->getReg(id));
+
+    // The vector file (XVR/XBR/XCR views of the XRS cells); container-sized regs.
+    VecRegContainer vc;
+    for (auto &id : vecRegClass) {
+        src->getReg(id, &vc);
+        tc->setReg(id, &vc);
+    }
 
     for (RegIndex i = 0; i < misc_reg::NumRegs; i++)
         tc->setMiscRegNoEffect(i, src->readMiscRegNoEffect(i));

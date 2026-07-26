@@ -1,7 +1,7 @@
 # LVX gem5 — Phase 0 spike
 
 Proves the strategy in [`../PHASE0-FINDINGS.md`](../PHASE0-FINDINGS.md): the MDS
-already emits LVX instruction semantics (`Behavior.tuple`) and the decode tree
+already emits LVX instruction semantics (`behavior_bodies.inc`) and the decode tree
 (`Decode.c`) as portable C, coupled only to a small runtime API. We reuse that
 generated C verbatim and hand-write a thin shim over the simulator engine —
 here a toy CPU, in the real port gem5's `ExecContext`.
@@ -12,8 +12,8 @@ here a toy CPU, in the real port gem5's `ExecContext`.
 make            # extracts generated.c from ../../lvx-mds, builds, runs
 ```
 
-Requires the sibling `lvx-mds` checkout (for `Behavior.tuple`). Point elsewhere
-with `make TUPLE=/path/to/Behavior.tuple`.
+Requires the sibling `lvx-mds` checkout (for `behavior_bodies.inc`). Point elsewhere
+with `make TUPLE=/path/to/behavior_bodies.inc`.
 
 ## Files
 

@@ -5,10 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TUPLE="${1:-../../lvx-mds/lvx-refs/BE/LAO/lvx_v1/Behavior.tuple}"
+TUPLE="${1:-../../lvx-mds/lvx-refs/BE/GEM5/lvx_v1/behavior_bodies.inc}"
 if [ ! -f "$TUPLE" ]; then
-    echo "error: Behavior.tuple not found at '$TUPLE'" >&2
-    echo "usage: $0 [path/to/Behavior.tuple]" >&2
+    echo "error: behavior_bodies.inc not found at '$TUPLE'" >&2
+    echo "usage: $0 [path/to/behavior_bodies.inc]" >&2
     exit 1
 fi
 
@@ -23,7 +23,7 @@ extract_fn() {
 }
 
 {
-    echo '/* VERBATIM extract from lvx-mds .../BE/LAO/lvx_v1/Behavior.tuple - do not edit. */'
+    echo '/* VERBATIM extract from lvx-mds .../BE/GEM5/lvx_v1/behavior_bodies.inc - do not edit. */'
     echo '#include "shim.h"'
     echo
     extract_fn execute_lvx_v1_AWAIT_simple

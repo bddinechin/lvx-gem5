@@ -1,5 +1,5 @@
 /* Runtime shim for the LVX gem5 spike.
- * This is the seam the generated Behavior.tuple code depends on. In the real
+ * This is the seam the generated behavior_bodies.inc code depends on. In the real
  * port these HELPER()s map to gem5 ExecContext (readIntRegOperand /
  * setIntRegOperand / readMem / writeMem); here they map to a toy CPU state so
  * the generated bodies can be compiled and run unmodified. */

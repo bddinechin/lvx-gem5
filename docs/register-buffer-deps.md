@@ -9,7 +9,7 @@
 > so the block size has one source of truth instead of a hand-written shift/mask;
 > XACCESSO/XALIGNO lost their `buffer`/`mask`/`where` arithmetic. Because
 > `METHOD(%k)` now sits inside the Location, `proxyActions` also classifies `%k`
-> as a Read. **Verified value-preserving** by the `BE/LAO/TEST` differential
+> as a Read. **Verified value-preserving** by the `BE/GEM5/TEST` differential
 > harness: 1453/1453 lvx_v2 traces identical to the pre-change generation, over
 > Kalray's real `Int256_`.
 >
@@ -149,7 +149,7 @@ Location
 it in **slot 4** of the node — invisible to `CodeGen` and `Width.pm`, which read
 `[1..3]`, so the emitted C is untouched. A special case in `pretty` renders the
 attributed node as `(AGGL.storage.proxy addr extent)` so it re-parses through the
-new rule (the tree round-trips `Opcode.table`, which `BE/LAO` re-reads).
+new rule (the tree round-trips `Opcode.table`, which `BE/GEM5` re-reads).
 Regenerate `LIB/Behavior.pm` with `make -f Maintainer Behavior.pm` (any bison;
 the yaxcc normalization makes it deterministic — verified byte-identical on a
 second run).
@@ -184,14 +184,14 @@ run-time addresses; nothing about the value computation moves.
 Because `CodeGen` ignores slot 4, the functional C cannot change; proved directly
 rather than argued. Build the current sources twice — with and without the
 `.%2` on `Instruction.yml` (grammar/`.pm` changes present in both, so their effect
-is isolated) — and diff the regenerated `lvx_v2 Behavior.tuple`:
+is isolated) — and diff the regenerated `lvx_v2 behavior_bodies.inc`:
 
 - **24 changed lines, all `(AGGL.XVR` → `(AGGL.XVR.%2`**, on exactly the 12
   block-read nodes (2 reads × 6 buffer sizes). **Zero non-`.%2` changes.**
 - All 12 sit **inside `/* */` S-expr comments** (in-comment 12, in-code 0): the
-  emitted C is byte-identical, so the `BE/LAO/TEST` lvx_v2 trace is unchanged by
+  emitted C is byte-identical, so the `BE/GEM5/TEST` lvx_v2 trace is unchanged by
   construction — no need to run the harness to know it stays 0/1453.
-- **lvx_v1 `Behavior.tuple` byte-identical** — the grammar addition is inert on
+- **lvx_v1 `behavior_bodies.inc` byte-identical** — the grammar addition is inert on
   the core that uses no attributed `Location` (control for the `.pm` change).
 
 ### Phase 2 (implemented): operand-*relative* generation
@@ -223,7 +223,7 @@ Two payoffs beyond deleting the arithmetic:
   at the LOAD's stage — the dependency, now visible to that inference too, not
   only to a tree walk over slot 4.
 
-**Verified value-preserving** by the `BE/LAO/TEST` differential harness against
+**Verified value-preserving** by the `BE/GEM5/TEST` differential harness against
 Kalray's `Int256_`: the pre-change generation and the phase-2 generation produce
 **1453/1453 identical `lvx_v2` traces**. Since phase 2 changes the emitted C (the
 address arithmetic is inlined into `readFromStorage_XVR` instead of staged through
@@ -314,9 +314,9 @@ fact (`OpClass` per opcode) that the current `No_OpClass` bundle also lacks.
 ## Verification / build sequence
 
 1. `Behavior.y` + regen `Behavior.pm`; add the `Proxy`-`Location` case to
-   `LIB/Width.pm` (bound by N) and to `BE/LAO` CodeGen (lower to the storage
+   `LIB/Width.pm` (bound by N) and to `BE/GEM5` CodeGen (lower to the storage
    form). Re-express the `BIA<N>` formats + `XACCESSO`/`XALIGNO`.
-2. `make all && make -C BE/LAO check` — `BE/LAO/TEST` **lvx_v2** must stay
+2. `make all && make -C BE/GEM5 check` — `BE/GEM5/TEST` **lvx_v2** must stay
    0/1453 (value semantics identical by construction).
 3. New `BE/GEM5` emitters: `operandRole` table + `bufferNReg` block expansion.
 4. gem5: `LvxStaticInst` register lists; raise `MaxInstSrcRegs`; wire
@@ -328,7 +328,7 @@ fact (`OpClass` per opcode) that the current `No_OpClass` bundle also lacks.
 ## Scope note
 
 Steps 1–2 are the MDS prototype the previous turn asked for and are verifiable
-against `BE/LAO/TEST` today. Steps 3–5 are the gem5 target work; they also
+against `BE/GEM5/TEST` today. Steps 3–5 are the gem5 target work; they also
 require the port to grow register lists and a stalling CPU for the *first* time,
 which benefits every instruction, with the buffer expansion (step 2/§2) being the
 part that makes `XACCESSO`/`XALIGNO` correct rather than silently dependency-free.

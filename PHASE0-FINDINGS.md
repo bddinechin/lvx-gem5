@@ -5,12 +5,12 @@ decoder reach gem5) and size Phase 1. **Result: settled, with running code.**
 
 ## Headline
 
-The MDS **already** generates, via the existing `BE/LAO` back-end, everything we
+The MDS **already** generates, via the existing `BE/GEM5` back-end, everything we
 need as portable C:
 
-- `lvx-mds/refs/BE/LAO/lvx_v1/Behavior.tuple` (74K lines) — per-opcode
+- `lvx-mds/refs/BE/GEM5/lvx_v1/behavior_bodies.inc` (74K lines) — per-opcode
   `fetch`/`execute`/`commit` bodies.
-- `lvx-mds/refs/BE/LAO/lvx_v1/Decode.c` (4.6K lines) — the `Decoding.table`
+- `lvx-mds/refs/BE/GEM5/lvx_v1/Decode.c` (4.6K lines) — the `Decoding.table`
   decode tree as nested-switch C, one function per encoding space
   (`simple`/`double`/`triple`).
 
@@ -23,7 +23,7 @@ generated C verbatim** and hand-write only a runtime shim — we do **not** buil
 
 1. **Generated semantics compile and run unmodified.** The verbatim `execute`
    bodies for `AWAIT` and register-register `ADDW` were extracted from
-   `Behavior.tuple` and compiled against a ~100-line hand-written shim + a
+   `behavior_bodies.inc` and compiled against a ~100-line hand-written shim + a
    minimal `int256_t`. Results correct, including the `signextw` modifier and the
    `sx32`/`zx32` result-extension path.
 2. **VLIW parallel semantics fall out of the fetch/execute/commit split.** A
@@ -65,8 +65,8 @@ Reference implementations of all of the above exist in Kalray's ISS
 
 ## Revised layer model (supersedes rev-3 §"Three work layers")
 
-- **Layer A (generator)** — *nothing new to build.* Keep the existing `BE/LAO`
-  back-end enabled; consume its `Behavior.tuple` + `Decode.c`. Regeneration on
+- **Layer A (generator)** — *nothing new to build.* Keep the existing `BE/GEM5`
+  back-end enabled; consume its `behavior_bodies.inc` + `Decode.c`. Regeneration on
   ISA change is automatic.
 - **Layer B (runtime shim, hand-written, small)** — Int256 + the HELPER
   categories above over gem5 `ExecContext`; FP → gem5 SoftFloat; ISA plumbing
@@ -79,7 +79,7 @@ Reference implementations of all of the above exist in Kalray's ISS
 
 ## Phase 1 (sized)
 
-1. Bring `Behavior.tuple` + `Decode.c` into the gem5 build, compiled as C.
+1. Bring `behavior_bodies.inc` + `Decode.c` into the gem5 build, compiled as C.
 2. Implement Layer B shim (Int256 + operand/mem/control/syscall helpers; FP via
    SoftFloat).
 3. Implement Layer C bundle front-end (IMMX reassembly, magic immediates,

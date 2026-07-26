@@ -4,7 +4,7 @@ The validation oracle the LVX roadmap is built on: **compile the same C program
 with the host `cc` and with `lvx-mbr-gcc`, run the LVX binary under the gem5 ISS,
 and diff the result against the native run.** The oracle is native x86 execution —
 deliberately *independent of `Behavior`*, since the gem5 ISS **is** `Behavior`
-compiled (`BE/LAO` tuple + `Decode.c`), so a Behavior-derived model could never
+compiled (`BE/GEM5` tuple + `Decode.c`), so a Behavior-derived model could never
 independently validate it. This same harness validates the GCC, LLVM and MLIR
 back-ends against one reference.
 

@@ -6,8 +6,8 @@ for the strategy and its Phase 0 validation.
 ## Approach (unlike other gem5 ISAs)
 
 LVX does **not** use gem5's `.isa` parser. Instruction **decode** and
-**semantics** are reused verbatim from the LVX MDS `BE/LAO` output
-(`Behavior.tuple`, `Decode.c`), compiled as C. This directory hand-writes only:
+**semantics** are reused verbatim from the LVX MDS `BE/GEM5` output
+(`behavior_bodies.inc`, `Decode.c`), compiled as C. This directory hand-writes only:
 
 1. a thin runtime **shim** the generated C calls, mapped onto gem5's
    `ExecContext`; and
@@ -20,7 +20,7 @@ Build selection: `build_opts/LVX` → `USE_LVX_ISA` (see `Kconfig`). SE-mode
 
 | File | Layer | Role |
 |------|-------|------|
-| `generated/Behavior.tuple`, `generated/Decode.c` | A | MDS output (regenerated from sibling `lvx-mds`), compiled as C |
+| `generated/behavior_bodies.inc`, `generated/Decode.c` | A | MDS output (regenerated from sibling `lvx-mds`), compiled as C |
 | `shim.{cc,hh}`, `int256.{cc,hh}` | B | runtime API (`operandRead`/`operandFromValue`/`operandFromRegFile`/`commitRegFiles`, `MEM_*`, PC/branch, `syscall`) over `ExecContext`; FP → gem5 SoftFloat; Int256 ported from Kalray BSL |
 | `decoder.{cc,hh}` | C | read syllables to bundle end (parallel bit), reassemble IMMX/magic immediates, per-instruction decode via `Decode.c`, build `LvxStaticInst`s |
 | `insts/*.{cc,hh}` | C | `LvxStaticInst` (macroop/microop) dispatching `execute()` to generated bodies; fetch/execute/commit sequencing |

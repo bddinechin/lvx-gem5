@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Plain C (included by behavior.c). Defines the types the generated
- * Behavior.tuple bodies reference and the dispatch-entry type.
+ * behavior_bodies.inc bodies reference and the dispatch-entry type.
  */
 #ifndef __ARCH_LVX_BEHAVIOR_RT_H__
 #define __ARCH_LVX_BEHAVIOR_RT_H__

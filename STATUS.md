@@ -11,8 +11,8 @@ programs exercising loops, shifts, bitwise ops, integer comparisons, branches,
 function calls, and the kv4-v1 prologue/epilogue — output matched against the same
 C compiled and run natively on x86.
 
-The architecture is unchanged from the plan: the MDS `BE/LAO` output
-(`Behavior.tuple` + `Decode.c`) is compiled verbatim as C (Layer A), over a
+The architecture is unchanged from the plan: the MDS `BE/GEM5` output
+(`behavior_bodies.inc` + `Decode.c`) is compiled verbatim as C (Layer A), over a
 hand-written runtime shim (Layer B) and bundle front-end (Layer C). Nothing is
 re-derived; regenerate `generated/` via `regen.sh` / `make -C
 lvx-mds/build_lvx/BE/GEM5 install`.

@@ -13,7 +13,7 @@ Goal: a functional gem5 simulator that runs `lvx-mbr-gcc` output so we can valid
 
 | Concern | Authority |
 |---|---|
-| Instruction semantics | `<Behavior>` element of each `<Opcode>` in `lvx-mds/refs/MDD/lvx/lvx_v1/Opcode.table` — a parsed, typed S-expression AST (grammar: `MDS/DOC/Behavior.y`; walker: `MDS/LIB/Behavior.pm`). Already lowered to the ISS by `MDS/BE/LAO/BIN/Behavior.pl`. |
+| Instruction semantics | `<Behavior>` element of each `<Opcode>` in `lvx-mds/refs/MDD/lvx/lvx_v1/Opcode.table` — a parsed, typed S-expression AST (grammar: `MDS/DOC/Behavior.y`; walker: `MDS/LIB/Behavior.pm`). Already lowered to the ISS by `MDS/BE/GEM5/BIN/Behavior.pl`. |
 | Decode tree | `lvx-mds/refs/MDD/lvx/lvx_v1/Decoding.table` — authoritative, pre-optimized (Theiling, LCTES 2001), nested `<Decode shift/mask/case>` → `opcodes=`. |
 | Encoding spaces | `Encoding.table`: `simple` (1×32-bit), `double` (2×32-bit), `triple` (3×32-bit). A single instruction is 1–3 syllables (main + up to two IMMX). |
 | VLIW bundling | `lvx-target/lvx_VLIWInstructionBundling.tex` (spec) + `lvx-binutils/gas/config/tc-lvx.c` (assembler = the inverse operation). |
@@ -56,7 +56,7 @@ PC-relative instructions are based on the PC of their **own first syllable**, no
 The LVX MDS has no ISS/QEMU/gem5 back-end (KVX has ISS + QEMU). We add the missing one. It reuses the exact sources that already feed the validated ISS:
 
 - **Decode** — translate `Decoding.table` into gem5 nested-switch decoders, one per encoding space, instantiating per-opcode `StaticInst`s.
-- **Semantics** — reuse `Behavior.pm`'s `CodeGen` tree-walker (as `BE/LAO/Behavior.pl` does) to emit each opcode's **fetch → execute → commit** bodies.
+- **Semantics** — reuse `Behavior.pm`'s `CodeGen` tree-walker (as `BE/GEM5/Behavior.pl` does) to emit each opcode's **fetch → execute → commit** bodies.
 
 The fetch/execute/commit phase split already encodes VLIW **read-all-then-write-all-at-bundle-boundary** semantics, so the register-swap-in-a-bundle hazard is handled by the model rather than by bespoke gem5 code. Everything expensive (per-opcode semantics for the whole ISA) is generated from the source of truth and stays in sync as the ISA evolves.
 
@@ -87,7 +87,7 @@ The fetch/execute/commit phase split already encodes VLIW **read-all-then-write-
 
 ## Risks
 
-- **`CodeGen` retargeting** (LAO runtime → gem5 `ExecContext`) is the critical path — settled by the Phase-0 spike. Fallback: implement the LAO runtime API as a thin gem5 shim and reuse `BE/LAO` C output near-verbatim (less generator work, more runtime shim).
+- **`CodeGen` retargeting** (LAO runtime → gem5 `ExecContext`) is the critical path — settled by the Phase-0 spike. Fallback: implement the LAO runtime API as a thin gem5 shim and reuse `BE/GEM5` C output near-verbatim (less generator work, more runtime shim).
 - **De-bundling correctness** — IMMX tag/steering reassembly, magic immediates, per-instruction PC. Now cross-checkable against one authoritative doc plus the assembler.
 - **`int256_t`/SIMD mapping** to gem5 vector regs — deferred to Phase 3.
 - **No golden LVX simulator** for differential validation → native-x86 diffing + per-helper unit tests + `lvx-gdb`. (Cross-checking against the KVX ISS is possible only at the helper-semantics level, since encodings differ.)

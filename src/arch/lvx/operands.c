@@ -6,11 +6,11 @@
  * that the behavior bodies read as decoded[i] are extracted here. This mirrors
  * what Kalray's LAO instruction decoder does, reusing the MDS tuples directly:
  *
- *   Opcode.tuple    opcode -> operand-set id (its OPERANDS(...) field)
- *   Operand.tuple   Operands(set): ordered list of operand ids
+ *   Opcode.def     opcode -> operand-set id (its OPERANDS(...) field)
+ *   Operand.def    Operands(set): ordered list of operand ids
  *                   Operand(op):   METHOD + a DECODE expr over WORDS[]
- *   RegClass.tuple  regclass -> ordered register list (index -> Register)
- *   Immediate.tuple immediate type -> DECODE expr (sign-extend / <<s shift)
+ *   RegClass.def   regclass -> ordered register list (index -> Register)
+ *   Immediate.def  immediate type -> DECODE expr (sign-extend / <<s shift)
  *
  * For each operand we run its field DECODE over the instruction's syllables,
  * then apply the METHOD: register operands map the raw index through the

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 typedef unsigned __int128 uint128_t;
+typedef signed   __int128 int128_t;   /* the unboxed Behavior C widens signed to int128_t */
 
 typedef union Int256_
 {

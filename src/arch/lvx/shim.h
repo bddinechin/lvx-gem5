@@ -25,9 +25,9 @@ extern "C" {
 
 /* Operand slot access (fetch fills source slots; execute reads them / stages
  * the result slot; commit writes result slots back). */
-Int256_ Behavior_operandRead(void * /*this*/, int /*opnd_idx*/);
+int256_t Behavior_operandRead(void * /*this*/, int /*opnd_idx*/);
 void    Behavior_operandFromValue(void * /*this*/, int /*rank*/, int /*opnd_idx*/,
-                                  uint64_t /*mask*/, Int256_ /*value*/);
+                                  uint64_t /*mask*/, int256_t /*value*/);
 
 /* Register-file reads (fetch phase): load arch register `register_id` into the
  * operand slot. GPR is a single 64-bit reg; PGR/QGR are 2/4 consecutive GPRs. */
@@ -52,8 +52,8 @@ void Behavior_commitRegFiles(void *);
  * opnd2 = byte-mask (encodes the access size), opnd3 = modifier/coherency,
  * opnd4 = stored value (store only), last = destination-register info (unused
  * functionally). */
-Int256_ Behavior_MEM_load (void *, uint64_t, Int256_, uint8_t, uint8_t);
-void    Behavior_MEM_store(void *, uint64_t, Int256_, uint8_t, Int256_, uint8_t);
+int256_t Behavior_MEM_load (void *, uint64_t, int256_t, uint8_t, uint8_t);
+void    Behavior_MEM_store(void *, uint64_t, int256_t, uint8_t, int256_t, uint8_t);
 
 /* System-call trap (scall). opnd1 = syscall number; arguments are in r0..r7,
  * return value goes in r0 (kv4-v1 ABI). */
@@ -76,24 +76,24 @@ bool Behavior_set_check_access (void *, uint16_t, uint64_t, uint8_t);
 bool Behavior_wfxl_check_access(void *, uint16_t, uint8_t);
 bool Behavior_wfxm_check_access(void *, uint16_t, uint8_t);
 /* GET: return the already-loaded SFR value (opnd2), no privilege side effects. */
-Int256_ Behavior_get(void *, uint16_t /*sfr*/, uint64_t /*value*/);
+int256_t Behavior_get(void *, uint16_t /*sfr*/, uint64_t /*value*/);
 /* Integer comparison (COMP*): opnd1 = intcomp code, opnd2/opnd3 = the values;
  * returns the boolean result. */
 bool Behavior_intcomp_32(void *, uint8_t /*code*/, uint64_t, uint64_t);
 bool Behavior_intcomp_64(void *, uint8_t /*code*/, uint64_t, uint64_t);
 
-Int256_ Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
-Int256_ Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);
-Int256_ Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsigned);
-Int256_ Behavior_readFromStorage_CS (void *, unsigned, unsigned, unsigned, unsigned);
-void    Behavior_writeToStorage_CS  (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
-Int256_ Behavior_readFromStorage_SFR(void *, unsigned, unsigned, unsigned, unsigned);
+int256_t Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
+int256_t Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);
+int256_t Behavior_readFromStorage_PS (void *, unsigned, unsigned, unsigned, unsigned);
+int256_t Behavior_readFromStorage_CS (void *, unsigned, unsigned, unsigned, unsigned);
+void    Behavior_writeToStorage_CS  (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
+int256_t Behavior_readFromStorage_SFR(void *, unsigned, unsigned, unsigned, unsigned);
 /* SRS: unified system-register storage (shares SFR numbering). Post SFR->SRS
  * refactor this is the main system-register access path (PS, CS, LS/LE/LC...). */
-Int256_ Behavior_readFromStorage_SRS(void *, unsigned, unsigned, unsigned, unsigned);
-void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
-void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
-void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, Int256_);
+int256_t Behavior_readFromStorage_SRS(void *, unsigned, unsigned, unsigned, unsigned);
+void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
+void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
+void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 
 #ifdef __cplusplus
 } // extern "C"

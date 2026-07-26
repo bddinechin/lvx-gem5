@@ -24,7 +24,7 @@ generated C verbatim** and hand-write only a runtime shim — we do **not** buil
 1. **Generated semantics compile and run unmodified.** The verbatim `execute`
    bodies for `AWAIT` and register-register `ADDW` were extracted from
    `Behavior.tuple` and compiled against a ~100-line hand-written shim + a
-   minimal `Int256_`. Results correct, including the `signextw` modifier and the
+   minimal `int256_t`. Results correct, including the `signextw` modifier and the
    `sx32`/`zx32` result-extension path.
 2. **VLIW parallel semantics fall out of the fetch/execute/commit split.** A
    two-instruction "bundle" where op2 reads a register op1 writes
@@ -38,7 +38,7 @@ generated C verbatim** and hand-write only a runtime shim — we do **not** buil
 Notes:
 - The generated code uses `this` as a parameter name ⇒ **must be compiled as C**
   (or preprocessed to rename) when linked into gem5's C++.
-- `Int256_` is the SIMD value type (256-bit); scalar ops use the low 64 bits.
+- `int256_t` is the SIMD value type (256-bit); scalar ops use the low 64 bits.
 
 ## Runtime seam (the hand-written shim scope)
 

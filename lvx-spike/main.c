@@ -12,7 +12,7 @@
 static void set_addw(Insn *in, Cpu *cpu, int W, int Z, int Y, int signextw) {
     *in = (Insn){0};
     in->cpu = cpu;
-    in->kind[0] = OPK_MOD; in->value[0] = Int256_fromUInt64(signextw); /* %1 signextw */
+    in->kind[0] = OPK_MOD; in->value[0] = int256_fromUInt64(signextw); /* %1 signextw */
     in->kind[1] = OPK_REG; in->regnum[1] = W;                          /* %2 registerW */
     in->kind[2] = OPK_REG; in->regnum[2] = Z;                          /* %3 registerZ */
     in->kind[3] = OPK_REG; in->regnum[3] = Y;                          /* %4 registerY */

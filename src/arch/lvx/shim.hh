@@ -41,7 +41,7 @@ enum OperandFlags : unsigned
 // written slots back to registers.
 struct OperandSlot
 {
-    Int256_ value;
+    int256_t value;
     unsigned flags;
 };
 
@@ -75,7 +75,7 @@ struct BehaviorContext
         instPC = inst_pc;
         nextPC = fall_through;
         npcWritten = false;
-        for (auto &s : operands) { s.value = Int256_zero; s.flags = AccessNone; }
+        for (auto &s : operands) { s.value = int256_zero; s.flags = AccessNone; }
     }
 };
 

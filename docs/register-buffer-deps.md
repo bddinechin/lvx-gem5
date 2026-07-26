@@ -25,7 +25,7 @@
 > unchanged (validation harness loops/branches/shifts still match native x86).
 > Building it also required **resyncing the hand-written shim to the current
 > lvx-mds helper-width ABI** (the intervening unboxing narrowed `syscall`/
-> `branch_info`/`MEM_*`/… from `Int256_` to native types) and adding the missing
+> `branch_info`/`MEM_*`/… from `int256_t` to native types) and adding the missing
 > `CS` storage helpers.
 >
 > **`LvxMinorCPU` wired.** `LvxCPU.py` adds `LvxMinorCPU(BaseMinorCPU, LvxCPU)`;

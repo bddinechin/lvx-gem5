@@ -38,5 +38,5 @@ Build selection: `build_opts/LVX` → `USE_LVX_ISA` (see `Kconfig`). SE-mode
 - LVX binaries currently carry `e_machine = 256` (== `EM_KVX`); gem5 recognizes
   256 as LVX (decision recorded 2026-07-11). Loader hook in
   `src/base/loader/elf_object.cc::determineArch()`.
-- `Int256_` is the 256-bit SIMD value type; scalar ops use the low 64 bits.
+- `int256_t` is the 256-bit SIMD value type; scalar ops use the low 64 bits.
 - LP64, little-endian.

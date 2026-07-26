@@ -91,7 +91,7 @@ using namespace gem5::LvxISA;
 
 extern "C" {
 
-Int256_
+int256_t
 Behavior_operandRead(void *self, int opnd_idx)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
@@ -101,7 +101,7 @@ Behavior_operandRead(void *self, int opnd_idx)
 
 void
 Behavior_operandFromValue(void *self, int /*rank*/, int opnd_idx,
-                          uint64_t mask, Int256_ value)
+                          uint64_t mask, int256_t value)
 {
     // The generated LVX bodies only ever pass mask == 0 (full write); a partial
     // (masked) blend would go here if that ever changes.
@@ -116,7 +116,7 @@ Behavior_operandFromRegFile_GPR(void *self, unsigned /*stage*/, int /*rank*/,
                                 int opnd_idx, int register_id)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    ctx->operands[opnd_idx].value = Int256_fromUInt64(readGpr(ctx->tc, register_id));
+    ctx->operands[opnd_idx].value = int256_fromUInt64(readGpr(ctx->tc, register_id));
     ctx->operands[opnd_idx].flags = AccessNone;
 }
 
@@ -126,7 +126,7 @@ Behavior_operandFromRegFile_PGR(void *self, unsigned /*stage*/, int /*rank*/,
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     register_id *= 2;
-    ctx->operands[opnd_idx].value = Int256_make(
+    ctx->operands[opnd_idx].value = int256_make(
         readGpr(ctx->tc, register_id + 0), readGpr(ctx->tc, register_id + 1), 0, 0);
     ctx->operands[opnd_idx].flags = AccessNone;
 }
@@ -137,7 +137,7 @@ Behavior_operandFromRegFile_QGR(void *self, unsigned /*stage*/, int /*rank*/,
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     register_id *= 4;
-    ctx->operands[opnd_idx].value = Int256_make(
+    ctx->operands[opnd_idx].value = int256_make(
         readGpr(ctx->tc, register_id + 0), readGpr(ctx->tc, register_id + 1),
         readGpr(ctx->tc, register_id + 2), readGpr(ctx->tc, register_id + 3));
     ctx->operands[opnd_idx].flags = AccessNone;
@@ -148,7 +148,7 @@ Behavior_operandFromRegFile_SFR(void *self, unsigned /*stage*/, int /*rank*/,
                                 int opnd_idx, int register_id)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    ctx->operands[opnd_idx].value = Int256_fromUInt64(readSfr(ctx->tc, register_id));
+    ctx->operands[opnd_idx].value = int256_fromUInt64(readSfr(ctx->tc, register_id));
     ctx->operands[opnd_idx].flags = AccessNone;
 }
 
@@ -207,26 +207,26 @@ Behavior_commitRegFiles(void * /*self*/)
     // instructions' fetch, then execute, then commit phases (#9), not here.
 }
 
-Int256_
+int256_t
 Behavior_readFromStorage_PC(void *self, unsigned /*stage*/, unsigned offset,
                             unsigned extent, unsigned /*size*/)
 {
     // Only the whole PC is addressable.
     assert(extent <= 1 && offset == 0);
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    return Int256_fromUInt64(ctx->instPC);
+    return int256_fromUInt64(ctx->instPC);
 }
 
-Int256_
+int256_t
 Behavior_readFromStorage_NPC(void *self, unsigned /*stage*/, unsigned offset,
                              unsigned extent, unsigned /*size*/)
 {
     assert(extent <= 1 && offset == 0);
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    return Int256_fromUInt64(ctx->nextPC);
+    return int256_fromUInt64(ctx->nextPC);
 }
 
-Int256_
+int256_t
 Behavior_readFromStorage_PS(void *self, unsigned /*stage*/, unsigned offset,
                             unsigned extent, unsigned size)
 {
@@ -239,28 +239,28 @@ Behavior_readFromStorage_PS(void *self, unsigned /*stage*/, unsigned offset,
     unsigned width = size * extent;
     uint64_t mask = width >= 64 ? ~uint64_t{0} : ((uint64_t{1} << width) - 1);
     uint64_t field = (misc_reg::ps::SE_MODE_VALUE >> offset) & mask;
-    return Int256_fromUInt64(field);
+    return int256_fromUInt64(field);
 }
 
 // Compute Status (CS) — per-EXU status/mode bits (e.g. CS.XMF, set by the
 // register-buffer instructions). SE-mode user code observes none of it: reads
 // return 0 and writes are dropped, mirroring PS above.
-Int256_
+int256_t
 Behavior_readFromStorage_CS(void *self, unsigned /*stage*/, unsigned offset,
                             unsigned extent, unsigned /*size*/)
 {
     (void)self; (void)offset; (void)extent;
-    return Int256_zero;
+    return int256_zero;
 }
 
 void
 Behavior_writeToStorage_CS(void *self, unsigned /*stage*/, unsigned /*offset*/,
-                           unsigned /*extent*/, unsigned /*size*/, Int256_ /*value*/)
+                           unsigned /*extent*/, unsigned /*size*/, int256_t /*value*/)
 {
     (void)self;
 }
 
-Int256_
+int256_t
 Behavior_readFromStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
                              unsigned extent, unsigned size)
 {
@@ -269,25 +269,25 @@ Behavior_readFromStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
     uint64_t v = 0;
     for (unsigned i = 0; i < extent; ++i)
         v = (v << (size * i)) | readSfr(ctx->tc, offset + i);
-    return Int256_fromUInt64(v);
+    return int256_fromUInt64(v);
 }
 
 void
 Behavior_writeToStorage_NPC(void *self, unsigned /*stage*/, unsigned offset,
-                            unsigned extent, unsigned /*size*/, Int256_ value)
+                            unsigned extent, unsigned /*size*/, int256_t value)
 {
     assert(extent <= 1 && offset == 0);
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    ctx->nextPC = Int256_toUInt64(value) & ~UINT64_C(0x3); // clear low 2 bits
+    ctx->nextPC = int256_toUInt64(value) & ~UINT64_C(0x3); // clear low 2 bits
     ctx->npcWritten = true;
 }
 
 void
 Behavior_writeToStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
-                            unsigned extent, unsigned size, Int256_ value)
+                            unsigned extent, unsigned size, int256_t value)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    uint64_t v = Int256_toUInt64(value);
+    uint64_t v = int256_toUInt64(value);
     unsigned bits = size * extent;
     if (bits < 64)
         v &= (UINT64_C(1) << bits) - 1;
@@ -301,7 +301,7 @@ Behavior_writeToStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
 // hardware loops are enabled and LOOPDO does not throw. Everything else --
 // notably CS / FP status (SRS 4) -- reads its backing store, which defaults to
 // 0, matching the pre-refactor readFromStorage_CS behavior.
-Int256_
+int256_t
 Behavior_readFromStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
                              unsigned extent, unsigned size)
 {
@@ -314,15 +314,15 @@ Behavior_readFromStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
             reg |= misc_reg::ps::SE_MODE_VALUE; // force PS.HLE in SE mode
         v = (v << (size * i)) | reg;
     }
-    return Int256_fromUInt64(v);
+    return int256_fromUInt64(v);
 }
 
 void
 Behavior_writeToStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
-                            unsigned extent, unsigned size, Int256_ value)
+                            unsigned extent, unsigned size, int256_t value)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    uint64_t v = Int256_toUInt64(value);
+    uint64_t v = int256_toUInt64(value);
     unsigned bits = size * extent;
     if (bits < 64)
         v &= (UINT64_C(1) << bits) - 1;
@@ -341,14 +341,14 @@ lvxAccessSize(uint32_t byteMask)
     return 1;
 }
 
-Int256_
-Behavior_MEM_load(void *self, uint64_t addr, Int256_ byteMask,
+int256_t
+Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t /*modifier*/, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
     unsigned size = lvxAccessSize(byteMask.words[0]);
-    Int256_ result = Int256_zero;
+    int256_t result = int256_zero;
     // Functional SE-mode read (AtomicSimpleCPU). TODO: route through the CPU
     // memory system (ExecContext::readMem) for timing models.
     SETranslatingPortProxy proxy(ctx->tc);
@@ -357,8 +357,8 @@ Behavior_MEM_load(void *self, uint64_t addr, Int256_ byteMask,
 }
 
 void
-Behavior_MEM_store(void *self, uint64_t addr, Int256_ byteMask,
-                   uint8_t /*modifier*/, Int256_ value, uint8_t /*dri*/)
+Behavior_MEM_store(void *self, uint64_t addr, int256_t byteMask,
+                   uint8_t /*modifier*/, int256_t value, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
@@ -467,10 +467,10 @@ bool Behavior_wfxm_check_access(void *, uint16_t, uint8_t)           { return tr
 // GET reads an SFR: the value is already loaded from the SFR file by the
 // behavior (readFromStorage_SFR); `get` returns it, with no per-bit privilege
 // masking or clear-on-read side effects in SE mode.  opnd2 is that value.
-Int256_
+int256_t
 Behavior_get(void * /*self*/, uint16_t /*sfr*/, uint64_t value)
 {
-    return Int256_fromUInt64(value);
+    return int256_fromUInt64(value);
 }
 
 // Integer comparison (COMP*).  opnd1 is the `intcomp` modifier code, opnd2/opnd3

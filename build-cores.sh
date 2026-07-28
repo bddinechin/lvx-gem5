@@ -34,7 +34,12 @@ for core in "${cores[@]}"; do
     # staleness -- it builds the core if needed (install -> install-core -> all-core).
     make -C "$be" GEM5_CORE="$core" install
     echo "=== $core: building gem5.opt ==="
-    scons -C "$here" build/LVX/gem5.opt -j"$jobs"
+    # gem5's SConstruct resolves the build path against GetLaunchDir() (the dir
+    # scons was launched from), NOT the -C dir -- so we must cd into $here before
+    # invoking scons, otherwise the build lands under <cwd>/build/LVX while the cp
+    # below reads $here/build/LVX and silently copies a stale binary.  Running from
+    # a subshell so the caller's cwd is unchanged.
+    ( cd "$here" && scons build/LVX/gem5.opt -j"$jobs" )
     cp "$here/build/LVX/gem5.opt" "$out"
     echo "=== $core: -> $out ==="
 done

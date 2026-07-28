@@ -81,6 +81,10 @@ int256_t Behavior_get(void *, uint16_t /*sfr*/, uint64_t /*value*/);
  * returns the boolean result. */
 bool Behavior_intcomp_32(void *, uint8_t /*code*/, uint64_t, uint64_t);
 bool Behavior_intcomp_64(void *, uint8_t /*code*/, uint64_t, uint64_t);
+/* CCB fused compare-and-branch condition: opnd1 is the ccbcomp code (0-7 =
+ * double-word LT/GE/LTU/GEU/EQ/NE/ANY/NONE, 8-15 = the same relations at
+ * word width), opnd2/opnd3 the two values; returns the boolean result. */
+bool Behavior_ccbcomp(void *, uint8_t /*code*/, uint64_t, uint64_t);
 
 int256_t Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 int256_t Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);

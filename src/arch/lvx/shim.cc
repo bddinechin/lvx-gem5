@@ -648,4 +648,16 @@ Behavior_intcomp_32(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
     return lvxIntcomp(code, (int32_t)a, (int32_t)b, (uint32_t)a, (uint32_t)b);
 }
 
+// CCB fused compare-and-branch (Modifier.yml `ccbcomp`): a single 4-bit field
+// packs both the relation (same LT/GE/LTU/GEU/EQ/NE/ANY/NONE order as
+// intcomp's first 8 codes) and the operand width (codes 0-7 = double/64-bit,
+// 8-15 = word/32-bit, i.e. code & 8 selects width, code & 7 selects relation).
+bool
+Behavior_ccbcomp(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
+{
+    if (code & 8)
+        return lvxIntcomp(code & 7, (int32_t)a, (int32_t)b, (uint32_t)a, (uint32_t)b);
+    return lvxIntcomp(code & 7, (int64_t)a, (int64_t)b, a, b);
+}
+
 } // extern "C"

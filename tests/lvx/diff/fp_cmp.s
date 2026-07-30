@@ -10,13 +10,13 @@
 	##   ffmsd  1.0 - 2.0*3.0    = -5.0  0xc014000000000000  (product subtracted from acc)
 	##   fdivd  6.0 / 3.0        = 2.0   0x4000000000000000
 	##   fsqrtd sqrt(4.0)        = 2.0   0x4000000000000000
-	##   frintd rint(2.75)       = 3.0   0x4008000000000000  (round to nearest even)
+	##   frintd rint(2.75)       = 3.0   0x4008000000000000  (RN; also raises inexact, case 18)
 	##   fmind  min(2.0,3.0)     = 2.0   |  fmaxd  max(2.0,3.0) = 3.0
 	##   fminnd minNum(2.0,3.0)  = 2.0   |  fmaxnd maxNum(2.0,3.0) = 3.0
 	##   fmind(NaN,3.0)  = canonical NaN 0x7ff8000000000000  (min PROPAGATES NaN)
 	##   fmaxnd(NaN,3.0) = 3.0                                (maxNum RETURNS the number)
 	## Same self-checking shape as ccb_cmp.s: $r0 holds the current case number, so
-	## the process exit code is 0 on full success or the index (1..17) of the first
+	## the process exit code is 0 on full success or the index (1..18) of the first
 	## op whose result bits did not match. ccb.deq compares the raw 64-bit patterns.
 	.section .text
 	.align 8
@@ -291,7 +291,30 @@ c17:
 	;;
 	make $r4 = 0x8000000000000000ULL		# -0.0
 	;;
-	ccb.deq $r3, $r4 ? done
+	ccb.deq $r3, $r4 ? c18
+	;;
+	goto fail
+	;;
+c18:
+	## case 18: frintd raises inexact (RISC-V FROUNDNX.D). Clear $cs, round an
+	## inexact value (2.75 -> 3.0), and confirm the IN flag (bit 5 = 0x20) is set.
+	make $r0 = 18
+	;;
+	make $r5 = 0
+	;;
+	set $cs = $r5					# clear exception flags + RM (= RN)
+	;;
+	make $r1 = 0x4006000000000000ULL		# 2.75
+	;;
+	frintd $r3 = $r1				# -> 3.0, inexact
+	;;
+	get $r6 = $cs					# read CS
+	;;
+	make $r7 = 0x20					# inexact flag (fin << 5)
+	;;
+	andd $r6 = $r6, $r7				# isolate the inexact bit
+	;;
+	ccb.deq $r6, $r7 ? done				# inexact raised?
 	;;
 	goto fail
 	;;

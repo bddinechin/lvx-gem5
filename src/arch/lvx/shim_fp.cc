@@ -20,7 +20,7 @@
  *   LVX f64_min/f64_max       == RISC-V FMINM.D/FMAXM.D (Zfa; IEEE minimum/
  *       maximum: NaN-PROPAGATING -- either operand NaN yields canonical NaN,
  *       still raising invalid on a signaling NaN).
- * f64_rint is f64_roundToInt with exact=false (RISC-V FROUND.D: no inexact).
+ * f64_rint is f64_roundToInt with exact=true (RISC-V FROUNDNX.D: raises inexact).
  *
  * These are PURE functions of (rounding mode, raw IEEE-754 bits). The generated
  * execute body owns all architectural FP state: it resolves the rounding mode
@@ -190,13 +190,14 @@ Behavior_f64_sqrt(void * /*self*/, uint8_t rm, uint64_t a)
     return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
 }
 
-// FRINTD: round to integral value in f64. exact=false (matches KVX), so inexact
-// is not raised for a representable-but-rounded result. Tuple = {value, io, in}.
+// FRINTD: round to integral value in f64, RISC-V FROUNDNX.D -- exact=true, so
+// the inexact flag IS raised when the rounded result differs from the input.
+// Tuple = {value, io, in}.
 Tuple_64_1_1
 Behavior_f64_rint(void * /*self*/, uint8_t rm, uint64_t a)
 {
     sfBegin(rm);
-    float64_t r = f64_roundToInt(f64(a), softfloat_roundingMode, false);
+    float64_t r = f64_roundToInt(f64(a), softfloat_roundingMode, true);
     return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
 }
 

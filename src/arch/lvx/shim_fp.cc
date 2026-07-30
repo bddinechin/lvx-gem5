@@ -6,9 +6,11 @@
  *
  * Implements the f64 operator helpers the MDS-generated behavior bodies call
  * (Behavior_f64_{add,sub,mul,mulAdd,mulnAdd,div,sqrt,rint,min,max,minNum,
- * maxNum}), backed by Berkeley SoftFloat (ext/softfloat, RISC-V specialization
- * — default-NaN, tininess-after-rounding, round-to-odd, which LVX's floatmode
- * exposes).
+ * maxNum}, the f64<->integer and f64<->f32 conversions), backed by Berkeley
+ * SoftFloat (ext/softfloat, RISC-V specialization — default-NaN, tininess-
+ * after-rounding, round-to-odd, which LVX's floatmode exposes; and the RISC-V
+ * out-of-range float->int saturation values, so the conversions saturate the
+ * RISC-V way).
  *
  * All operators match RISC-V FP arithmetic exactly (mnemonics aside) -- any
  * divergence would be an LVX ISA spec bug. RISC-V has two min/max families and
@@ -53,6 +55,10 @@ extern "C" {
 // generated behavior expects. Included the same way behavior.c does; identical
 // across cores (verified), so this stays core-agnostic.
 #include "arch/lvx/generated/behavior_types.inc"
+
+// int256_t — the widening f32->f64 conversion helper returns a bare int256_t
+// (not a flag tuple), matching its generated prototype.
+#include "arch/lvx/int256.h"
 
 // SoftFloat internal fused multiply-add with an op selector (subProd negates the
 // product). The public f64_mulAdd is just this with op==0; FFMSD needs
@@ -243,6 +249,102 @@ Behavior_f64_max(void * /*self*/, uint64_t a, uint64_t b)
     float64_t r = f64_max(f64(a), f64(b));
     uint64_t v = (isNaN64(a) || isNaN64(b)) ? kDefaultNaN64 : r.v;
     return Tuple_64_1{ v, flagIO() };
+}
+
+// ---- Conversions (RISC-V FCVT.*) --------------------------------------------
+
+// f64 -> integer (FIXED{DW,UDW,D,UD} == RISC-V FCVT.{W,WU,L,LU}.D): round per
+// rm, exact=true so rounding raises inexact. Out-of-range and NaN saturate to
+// the RISC-V values baked into SoftFloat's RISC-V specialization (signed
+// NaN/+ovf -> INT_MAX, -ovf -> INT_MIN; unsigned NaN/+ovf -> UINT_MAX, negative
+// -> 0), raising invalid. Tuple = {value, io, in}.
+Tuple_32_1_1
+Behavior_f64_to_i32(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    softfloat_exceptionFlags = 0;
+    int_fast32_t r = f64_to_i32(f64(a), sfRoundingMode(rm), true);
+    return Tuple_32_1_1{ (uint32_t)r, flagIO(), flagIN() };
+}
+
+Tuple_32_1_1
+Behavior_f64_to_ui32(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    softfloat_exceptionFlags = 0;
+    uint_fast32_t r = f64_to_ui32(f64(a), sfRoundingMode(rm), true);
+    return Tuple_32_1_1{ (uint32_t)r, flagIO(), flagIN() };
+}
+
+Tuple_64_1_1
+Behavior_f64_to_i64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    softfloat_exceptionFlags = 0;
+    int_fast64_t r = f64_to_i64(f64(a), sfRoundingMode(rm), true);
+    return Tuple_64_1_1{ (uint64_t)r, flagIO(), flagIN() };
+}
+
+Tuple_64_1_1
+Behavior_f64_to_ui64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    softfloat_exceptionFlags = 0;
+    uint_fast64_t r = f64_to_ui64(f64(a), sfRoundingMode(rm), true);
+    return Tuple_64_1_1{ (uint64_t)r, flagIO(), flagIN() };
+}
+
+// f64 -> f32 (FNARROWDW == RISC-V FCVT.S.D): round per rm; can overflow,
+// underflow, or be inexact, and raises invalid on a signaling NaN. f64_to_f32
+// takes no explicit rm/exact -- it uses the global rounding mode and always
+// reports these flags. Tuple = {value, io, ov, un, in}.
+Tuple_32_1_1_1_1
+Behavior_f64_to_f32(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float32_t r = f64_to_f32(f64(a));
+    return Tuple_32_1_1_1_1{ r.v, flagIO(), flagOV(), flagUN(), flagIN() };
+}
+
+// integer -> f64 (FLOAT{WD,UWD,D,UD} == RISC-V FCVT.D.{W,WU,L,LU}): 32-bit
+// sources are exact; 64-bit sources round per rm and may raise inexact. Never
+// invalid. Tuple = {value, io, in}.
+Tuple_64_1_1
+Behavior_i32_to_f64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = i32_to_f64((int32_t)a);
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+Tuple_64_1_1
+Behavior_ui32_to_f64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = ui32_to_f64((uint32_t)a);
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+Tuple_64_1_1
+Behavior_i64_to_f64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = i64_to_f64((int64_t)a);
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+Tuple_64_1_1
+Behavior_ui64_to_f64(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = ui64_to_f64((uint64_t)a);
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+// f32 -> f64 (FWIDENWD == RISC-V FCVT.D.S): exact widening; canonicalizes NaN.
+// Its generated prototype returns a bare int256_t with no rounding mode and no
+// flag tuple, so only the value is threaded.
+int256_t
+Behavior_f32_to_f64(void * /*self*/, uint32_t a)
+{
+    float64_t r = f32_to_f64(float32_t{a});
+    return int256_fromUInt64(r.v);
 }
 
 }  // extern "C"

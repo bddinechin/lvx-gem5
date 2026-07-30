@@ -5,9 +5,22 @@
  * Benoît Dupont de Dinechin (benoit.dinechin@gmail.com).
  *
  * Implements the f64 operator helpers the MDS-generated behavior bodies call
- * (Behavior_f64_{add,sub,mul,mulAdd,mulnAdd}), backed by Berkeley SoftFloat
- * (ext/softfloat, RISC-V specialization — default-NaN, tininess-after-rounding,
- * round-to-odd, which LVX's floatmode exposes).
+ * (Behavior_f64_{add,sub,mul,mulAdd,mulnAdd,div,sqrt,rint,min,max,minNum,
+ * maxNum}), backed by Berkeley SoftFloat (ext/softfloat, RISC-V specialization
+ * — default-NaN, tininess-after-rounding, round-to-odd, which LVX's floatmode
+ * exposes).
+ *
+ * All operators match RISC-V FP arithmetic exactly (mnemonics aside) -- any
+ * divergence would be an LVX ISA spec bug. RISC-V has two min/max families and
+ * so does LVX, with the plain/Num names inverted between them:
+ *   LVX f64_minNum/f64_maxNum == RISC-V FMIN.D/FMAX.D   (IEEE minimumNumber/
+ *       maximumNumber: return the numeric operand when one is NaN, canonical NaN
+ *       only if both are, -0 < +0, invalid only on signaling NaN) == SoftFloat
+ *       f64_min/f64_max.
+ *   LVX f64_min/f64_max       == RISC-V FMINM.D/FMAXM.D (Zfa; IEEE minimum/
+ *       maximum: NaN-PROPAGATING -- either operand NaN yields canonical NaN,
+ *       still raising invalid on a signaling NaN).
+ * f64_rint is f64_roundToInt with exact=false (RISC-V FROUND.D: no inexact).
  *
  * These are PURE functions of (rounding mode, raw IEEE-754 bits). The generated
  * execute body owns all architectural FP state: it resolves the rounding mode
@@ -90,11 +103,22 @@ sfBegin(uint8_t rm)
 }
 
 inline uint8_t flagIO() { return (softfloat_exceptionFlags & softfloat_flag_invalid)   ? 1 : 0; }
+inline uint8_t flagDZ() { return (softfloat_exceptionFlags & softfloat_flag_infinite)  ? 1 : 0; }
 inline uint8_t flagOV() { return (softfloat_exceptionFlags & softfloat_flag_overflow)  ? 1 : 0; }
 inline uint8_t flagUN() { return (softfloat_exceptionFlags & softfloat_flag_underflow) ? 1 : 0; }
 inline uint8_t flagIN() { return (softfloat_exceptionFlags & softfloat_flag_inexact)   ? 1 : 0; }
 
 inline float64_t f64(uint64_t bits) { return float64_t{bits}; }
+
+// IEEE-754 binary64 canonical quiet NaN (RISC-V default NaN) and a raw-bits NaN
+// test, for the min/max helpers whose NaN handling is done outside SoftFloat.
+constexpr uint64_t kDefaultNaN64 = UINT64_C(0x7FF8000000000000);
+inline bool
+isNaN64(uint64_t b)
+{
+    return (b & UINT64_C(0x7FF0000000000000)) == UINT64_C(0x7FF0000000000000)
+        && (b & UINT64_C(0x000FFFFFFFFFFFFF)) != 0;
+}
 
 }  // namespace
 
@@ -145,6 +169,79 @@ Behavior_f64_mulnAdd(void * /*self*/, uint8_t rm, uint64_t a, uint64_t b, uint64
     sfBegin(rm);
     float64_t r = softfloat_mulAddF64(a, b, c, kMulAddSubProd);
     return Tuple_64_1_1_1_1{ r.v, flagIO(), flagOV(), flagUN(), flagIN() };
+}
+
+// FDIVD: a / b. Tuple = {value, io, dz, ov, un, in} (only op that can raise the
+// divide-by-zero flag -- SoftFloat reports it as the "infinite" flag).
+Tuple_64_1_1_1_1_1
+Behavior_f64_div(void * /*self*/, uint8_t rm, uint64_t a, uint64_t b)
+{
+    sfBegin(rm);
+    float64_t r = f64_div(f64(a), f64(b));
+    return Tuple_64_1_1_1_1_1{ r.v, flagIO(), flagDZ(), flagOV(), flagUN(), flagIN() };
+}
+
+// FSQRTD: sqrt(a). Tuple = {value, io, in}.
+Tuple_64_1_1
+Behavior_f64_sqrt(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = f64_sqrt(f64(a));
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+// FRINTD: round to integral value in f64. exact=false (matches KVX), so inexact
+// is not raised for a representable-but-rounded result. Tuple = {value, io, in}.
+Tuple_64_1_1
+Behavior_f64_rint(void * /*self*/, uint8_t rm, uint64_t a)
+{
+    sfBegin(rm);
+    float64_t r = f64_roundToInt(f64(a), softfloat_roundingMode, false);
+    return Tuple_64_1_1{ r.v, flagIO(), flagIN() };
+}
+
+// FMINND/FMAXND: IEEE-754 minimumNumber/maximumNumber == RISC-V FMIN.D/FMAX.D.
+// SoftFloat's f64_min/f64_max implement exactly this: return the numeric operand
+// when one is NaN, canonical NaN only if both are, treat -0.0 < +0.0, and raise
+// invalid only on a signaling NaN (they select with f64_lt_quiet + an f64_eq
+// signed-zero tiebreak). Tuple = {value, io}. No rounding.
+Tuple_64_1
+Behavior_f64_minNum(void * /*self*/, uint64_t a, uint64_t b)
+{
+    softfloat_exceptionFlags = 0;
+    float64_t r = f64_min(f64(a), f64(b));
+    return Tuple_64_1{ r.v, flagIO() };
+}
+
+Tuple_64_1
+Behavior_f64_maxNum(void * /*self*/, uint64_t a, uint64_t b)
+{
+    softfloat_exceptionFlags = 0;
+    float64_t r = f64_max(f64(a), f64(b));
+    return Tuple_64_1{ r.v, flagIO() };
+}
+
+// FMIND/FMAXD: IEEE-754 minimum/maximum == RISC-V FMINM.D/FMAXM.D (Zfa). Same as
+// the Number variants but NaN-PROPAGATING: if either operand is NaN the result
+// is the canonical NaN (the signaling-NaN invalid flag is still raised). Built
+// on SoftFloat's f64_min/f64_max, overriding only the value when an input is
+// NaN, so the flag and signed-zero behaviour stay identical to RISC-V.
+Tuple_64_1
+Behavior_f64_min(void * /*self*/, uint64_t a, uint64_t b)
+{
+    softfloat_exceptionFlags = 0;
+    float64_t r = f64_min(f64(a), f64(b));
+    uint64_t v = (isNaN64(a) || isNaN64(b)) ? kDefaultNaN64 : r.v;
+    return Tuple_64_1{ v, flagIO() };
+}
+
+Tuple_64_1
+Behavior_f64_max(void * /*self*/, uint64_t a, uint64_t b)
+{
+    softfloat_exceptionFlags = 0;
+    float64_t r = f64_max(f64(a), f64(b));
+    uint64_t v = (isNaN64(a) || isNaN64(b)) ? kDefaultNaN64 : r.v;
+    return Tuple_64_1{ v, flagIO() };
 }
 
 }  // extern "C"

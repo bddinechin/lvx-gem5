@@ -39,7 +39,7 @@ run_core() {
     out="$(timeout 120 "$gem5" --outdir="$work/m5" "$RUNCFG" "$work/fp.elf" 2>&1)"
     code="$(printf '%s' "$out" | grep -oE 'code=-?[0-9]+' | grep -oE '\-?[0-9]+' | head -1)"
     if [ "${code:-x}" = "0" ]; then
-        echo "$core  PASS (all 5 f64 cases)"
+        echo "$core  PASS (all 17 f64 cases)"
         return 0
     elif [ -z "${code:-}" ]; then
         echo "$core  FAIL (no exit code from gem5)"

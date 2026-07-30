@@ -28,3 +28,20 @@ Expected:
 
 Verified the decode matches `lvx-mbr-objdump` (instructions-per-bundle and bundle
 byte size) via `--debug-flags=LvxDecode`.
+
+## Floating-point regression tests
+- `fpu_crash_repro` → **fixed as of 2026-07-30** (`code=0`, the low 32
+  bits of a real fused `ffmad`'s result -- see the file's own comments).
+  Originally crashed the gem5 process itself (`Illegal instruction (core
+  dumped)`, not a simulated guest trap) for every floating-point
+  arithmetic opcode tried; kept as a regression test now that it's fixed.
+  Re-verified end to end from the lvx-mlir side too: a chained
+  `ffmad`→`ffmsd` kernel with non-trivial operands now executes with a
+  bit-exact, sign-and-magnitude-correct fused result (lvx-mlir's
+  `docs/lvx/EndToEndValidation.md`, "ffma/ffms accumulator coalescing,
+  verified end to end").
+- `fcompd_crash_repro` → **also fixed as of 2026-07-30**
+  (`Behavior_floatcomp_64` added to `shim_fp.cc`), same day it was found.
+  `code=1` as expected. Floating-point comparisons (`fcompd`/`fcompw`)
+  were a narrower follow-on gap the arithmetic fix above didn't cover --
+  see the file's own comments.

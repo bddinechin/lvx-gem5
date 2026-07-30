@@ -6,11 +6,11 @@
  *
  * Implements the f64 operator helpers the MDS-generated behavior bodies call
  * (Behavior_f64_{add,sub,mul,mulAdd,mulnAdd,div,sqrt,rint,min,max,minNum,
- * maxNum}, the f64<->integer and f64<->f32 conversions), backed by Berkeley
- * SoftFloat (ext/softfloat, RISC-V specialization — default-NaN, tininess-
- * after-rounding, round-to-odd, which LVX's floatmode exposes; and the RISC-V
- * out-of-range float->int saturation values, so the conversions saturate the
- * RISC-V way).
+ * maxNum}, floatcomp_64, and the f64<->integer and f64<->f32 conversions),
+ * backed by Berkeley SoftFloat (ext/softfloat, RISC-V specialization —
+ * default-NaN, tininess-after-rounding, round-to-odd, which LVX's floatmode
+ * exposes; and the RISC-V out-of-range float->int saturation values, so the
+ * conversions saturate the RISC-V way).
  *
  * All operators match RISC-V FP arithmetic exactly (mnemonics aside) -- any
  * divergence would be an LVX ISA spec bug. RISC-V has two min/max families and
@@ -124,6 +124,32 @@ isNaN64(uint64_t b)
 {
     return (b & UINT64_C(0x7FF0000000000000)) == UINT64_C(0x7FF0000000000000)
         && (b & UINT64_C(0x000FFFFFFFFFFFFF)) != 0;
+}
+
+// FCOMPD floating comparison (Modifier.yml `floatcomp`): a 3-bit code selects one
+// of eight ordered/unordered predicates over the comparison of a and b -- either
+// is NaN => unordered, else less/greater/equal (+0.0 == -0.0). Matches the KVX
+// reference (Behavior_floatcomp_64) and the RISC-V compare results: OEQ = FEQ.D,
+// OLT = FLT.D, OGE = a>=b (FLE.D with swapped operands); the odd codes are the
+// negations, giving the unordered predicates. Like the integer compares, FCOMPD
+// threads no exception flags, so quiet compares are used (a quiet NaN raises
+// nothing, and the signaling-NaN side effect is discarded).
+inline bool
+lvxFloatcomp(uint8_t code, uint64_t a, uint64_t b)
+{
+    bool lt = f64_lt_quiet(float64_t{a}, float64_t{b});
+    bool gt = f64_lt_quiet(float64_t{b}, float64_t{a});
+    bool eq = f64_eq(float64_t{a}, float64_t{b});
+    switch (code & 7) {
+      case 0:  return   lt || gt;    // ONE  ordered and not equal
+      case 1:  return !(lt || gt);   // UEQ  unordered or equal
+      case 2:  return   eq;          // OEQ  ordered and equal
+      case 3:  return  !eq;          // UNE  unordered or not equal
+      case 4:  return   lt;          // OLT  ordered and less than
+      case 5:  return  !lt;          // UGE  unordered or greater-or-equal
+      case 6:  return   gt || eq;    // OGE  ordered and greater-or-equal
+      default: return !(gt || eq);   // ULT  unordered or less than
+    }
 }
 
 }  // namespace
@@ -249,6 +275,15 @@ Behavior_f64_max(void * /*self*/, uint64_t a, uint64_t b)
     float64_t r = f64_max(f64(a), f64(b));
     uint64_t v = (isNaN64(a) || isNaN64(b)) ? kDefaultNaN64 : r.v;
     return Tuple_64_1{ v, flagIO() };
+}
+
+// FCOMPD: f64 comparison, one of eight ordered/unordered predicates (see
+// lvxFloatcomp). Result is a boolean; no exception flags are threaded.
+bool
+Behavior_floatcomp_64(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
+{
+    softfloat_exceptionFlags = 0;   // FCOMPD reports no flags; keep the scratch clean
+    return lvxFloatcomp(code, a, b);
 }
 
 // ---- Conversions (RISC-V FCVT.*) --------------------------------------------

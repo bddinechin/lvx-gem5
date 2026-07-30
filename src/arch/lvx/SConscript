@@ -14,6 +14,13 @@ Source('static_inst.cc', tags=['lvx isa'])
 # storage access) against a gem5 ThreadContext; the C behavior.c calls these.
 Source('shim.cc', tags=['lvx isa'])
 
+# Layer B, FP part: the f64 IEEE-754 operator helpers, over Berkeley SoftFloat
+# (ext/softfloat). Pure functions of (rounding mode, raw bits) — no gem5 state —
+# so this is a separate TU from shim.cc, which is the only place softfloat.h is
+# pulled in. Listed in lvx-mds's BE/GEM5/shim-helpers so BE/GEM5 emits no trap
+# stub for these; core-agnostic (same f64 semantics/ABI on lvx_v1 and lvx_v2).
+Source('shim_fp.cc', tags=['lvx isa'])
+
 # MDS-generated instruction decode + behavior, plus its runtime, compiled as C
 # (the generated bodies use `this` as an ordinary parameter name). Delivered by
 # `make -C lvx-mds/build_lvx/BE/GEM5 install`; the generated/ dir is gitignored.

@@ -1,7 +1,7 @@
 # LVX gem5 SE-mode smoke tests
 
 Minimal freestanding LVX programs that exercise the decode → shim → execute
-pipeline end to end and exit via `scall` (kv4-v1 syscall ABI: number in the
+pipeline end to end and exit via `scall` (LVX syscall ABI: number in the
 scall operand, args in r0..r7, return in r0).
 
 ## Build a test (needs the lvx-mbr toolchain on PATH)

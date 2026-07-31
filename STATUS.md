@@ -8,7 +8,7 @@ and `PHASE0-FINDINGS.md` for the reuse-LAO spike. Updated 2026-07-31.
 **SE-mode functional simulation runs `lvx-mbr-gcc`-compiled C.** A validation
 harness (`../validation/`, native-x86 differential) confirms correct execution of
 programs exercising loops, shifts, bitwise ops, integer comparisons, branches,
-function calls, and the kv4-v1 prologue/epilogue — output matched against the same
+function calls, and the LVX prologue/epilogue — output matched against the same
 C compiled and run natively on x86.
 
 The architecture is unchanged from the plan: the MDS `BE/GEM5` output
@@ -27,7 +27,7 @@ lvx-mds/build_lvx/BE/GEM5 install`.
 - **Scalar floating point** (f16/f32/f64): full IEEE arithmetic, conversions,
   compares, min/max, classify, and reciprocal seeds — see "Behavior helpers".
 - Syscalls: `exit` (#1) and `write` (#17), enough to run and check freestanding
-  programs; kv4-v1 ABI (args r0..r7, return r0).
+  programs; the LVX ABI (args r0..r7, return r0).
 
 ## Behavior helpers implemented in the shim
 
@@ -40,8 +40,8 @@ instead of a stub. Implemented:
 - **Core + control/system** (`shim.cc`): the operand/register/storage/memory/
   syscall set, plus `branch_info`, `srhpc_update`, `bcucond`, `intcomp_32/64`,
   `ccbcomp`, `get`, and the `get/set/wfxl/wfxm_check_access` permission checks
-  (SE permits all). Scalar-integer control/compare semantics mirror
-  `../../kv4-csw/lao/LAO/kvx/Behavior.c`.
+  (SE permits all), implementing the LVX scalar-integer control/compare
+  semantics.
 - **Floating point** (`shim_fp.cc`, over Berkeley SoftFloat in `ext/softfloat`,
   RISC-V specialization): the **complete scalar f16/f32/f64 surface** —
   arithmetic (add/sub/mul/fma/div/sqrt/rint), min/max (all four RISC-V variants),

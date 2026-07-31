@@ -13,7 +13,7 @@ back-ends against one reference.
 These programs are **freestanding** — there is no newlib in the `-mbr` toolchain
 yet — so the whole signal is the process **exit code (0..255)**. Each `c/*.c`
 computes a result in `main` and returns it `& 0xFF`; the crt (`crt0_mbr.S`) calls
-`main` and exits with it via the kv4-v1 syscall ABI (number in the `scall` operand,
+`main` and exits with it via the LVX syscall ABI (number in the `scall` operand,
 args/return in `r0..`). `libmin.c` supplies only `memcpy`/`memset`/`memmove`/`memcmp`,
 which GCC emits calls to even under `-ffreestanding`; nothing else is linked, so a
 mismatch means a **compiler or ISS bug**, never a missing symbol.

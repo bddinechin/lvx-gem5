@@ -49,7 +49,7 @@ run_one() {
     fi
 }
 
-for prog in fp32_cmp fp16_cmp; do
+for prog in fp32_cmp fp16_cmp fast_cmp; do
     run_one lvx_v1 lvx-1 "${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}" "$prog" || rc=1
     run_one lvx_v2 lvx-2 "${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}" "$prog" || rc=1
 done

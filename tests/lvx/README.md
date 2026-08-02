@@ -22,9 +22,9 @@ Expected:
 - `compute` → `target exited (code=19)`  (computes 5*3 + 4)
 
 ## Bundle front-end tests (multi-instruction / multi-syllable)
-- `mk64`   → `code=188`  — a >32-bit `make` (double/triple encoding, IMMX operand)
-- `par`    → `code=188`  — two `make`s in one bundle (ALU0/ALU1), summed in the next
-- `bundle` → `code=7`    — mixed: triple `make` + a 2-instruction bundle
+- `mk64`   → `code=188`  — a >32-bit `maked` (double/triple encoding, IMMX operand)
+- `par`    → `code=188`  — two `maked`s in one bundle (ALU0/ALU1), summed in the next
+- `bundle` → `code=7`    — mixed: triple `maked` + a 2-instruction bundle
 
 Verified the decode matches `lvx-mbr-objdump` (instructions-per-bundle and bundle
 byte size) via `--debug-flags=LvxDecode`.
@@ -40,6 +40,17 @@ byte size) via `--debug-flags=LvxDecode`.
   bit-exact, sign-and-magnitude-correct fused result (lvx-mlir's
   `docs/lvx/EndToEndValidation.md`, "ffma/ffms accumulator coalescing,
   verified end to end").
+- `fsign` → `code=9` — the `FSIGN*` family (RISC-V `FSGNJ`/`FSGNJN`/`FSGNJX`)
+  at all three scalar widths.  Nine checks, one per mnemonic, each adding 1 to
+  the exit code, so the code is a pass count and a crashed run (0) is
+  distinguishable from success.  Covers two ISA-description bugs: a non-sign
+  mask that was one bit too narrow (`0x3FFF..` for `0x7FFF..`, clearing the top
+  exponent bit), and a stray `NOT` in `FSIGNM*`'s `behavior:` that its
+  `execution:` C did not have, which inverted the resulting sign.  Against an
+  ISS carrying the latter, this test returns `code=6` — the three `FSIGNM*`
+  checks fail, one per width.  Neither bug was reachable by the C-vs-ISS
+  differential harness: the mask was wrong identically in both descriptions,
+  and nothing else in this suite executes an `fsign*`.
 - `fcompd_crash_repro` → **also fixed as of 2026-07-30**
   (`Behavior_floatcomp_64` added to `shim_fp.cc`), same day it was found.
   `code=1` as expected. Floating-point comparisons (`fcompd`/`fcompw`)

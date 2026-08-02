@@ -21,30 +21,58 @@ mismatch means a **compiler or ISS bug**, never a missing symbol.
 ## Running
 
 ```sh
-./run_diff.sh                 # every c/*.c at -O2
-./run_diff.sh c/loops.c       # one program
-OPTS="-O0 -O2" ./run_diff.sh  # add -O0 (currently exposes a gcc ICE, see below)
-LVX_CPU=minor ./run_diff.sh   # in-order pipeline model instead of atomic
+./run_diff.sh                        # the full matrix: 2 cores x 4 opt levels
+./run_diff.sh c/loops.c              # one program, still across the matrix
+MARCH=lvx-1 OPTS=-O2 ./run_diff.sh   # the known-clean baseline cell
+MARCH=lvx-2 OPTS=-O2 ./run_diff.sh   # one cell while chasing a bug in it
+LVX_CPU=minor ./run_diff.sh          # in-order pipeline model instead of atomic
 ```
-Env: `LVX_TOOLCHAIN_BIN`, `GEM5`, `HOSTCC`, `OPTS`, `LVX_CPU`. Exit status is
-nonzero if any case fails, so it drops straight into CI.
+Env: `LVX_TOOLCHAIN_BIN`, `GEM5`, `HOSTCC`, `MARCH`, `OPTS`, `LVX_CPU`. Exit status
+is nonzero if any case fails.
 
-## Baseline (2026-07-23, at -O2)
+**The default run currently fails**, on purpose — see the matrix below. Use
+`MARCH=lvx-1 OPTS=-O2` for the green cell; that is the configuration the port was
+developed against and the only one that was ever exercised.
 
-**9 of 10 pass** — `arith bits branches cswitch funcs loops recursion signedness
-structptr` all match native x86, covering integer arithmetic, nested loops,
-if/else ladders, C `switch`, recursion (call/ret + RA), many-argument calls
-(register + stack), signed/unsigned casts, bit manipulation, and struct/pointer
-aggregate copies. This is the ISS executing real compiled C, validated against x86.
+`crt0.o` and `libmin.o` are rebuilt per core, since `ld` refuses to mix objects of
+different LVX cores. The native reference is built once per program at `-O2` and
+reused across every cell: it is the oracle, not a variable of the experiment.
 
-Two lvx-gcc bugs the harness found (these are the next work, not harness faults):
+## Baseline (2026-08-02) — the matrix
 
-- **`array.c` at -O2** — GCC emits `addx2wp $r2 = $r0, $r0`, which the assembler
-  rejects with "Unexpected token": a gcc↔assembler mnemonic/operand mismatch on the
-  word-pair add-shift (distinct from the known LITE even/odd parity-constraint error).
-- **`-O0`, almost every program** — backend ICE `safe_as_a<rtx_insn*>` at
-  `is-a.h:268` during the machine reorg pass. `-O0`-only; `-O1`/`-Og`/`-O2`/`-Os`
-  are all fine. So the harness defaults to `-O2`; `OPTS="-O0 -O2"` reproduces it.
+```
+          -O0      -O1      -O2      -Os
+  lvx-1   1/10     10/10    10/10    9/10
+  lvx-2   1/10     10/10     9/10    9/10
+```
+
+The 10 programs cover integer arithmetic, nested loops, if/else ladders, C `switch`,
+recursion (call/ret + RA), many-argument calls (register + stack), signed/unsigned
+casts, bit manipulation, and struct/pointer aggregate copies — the ISS executing
+real compiled C, validated against x86.
+
+Adding the two dimensions immediately found that **only the cell the port was
+developed in was clean**. Three distinct lvx-gcc bugs, none of them harness faults,
+each isolated to specific cells (which is the point of the matrix — a single-cell
+harness cannot tell an `-O0` bug from an lvx-2 bug):
+
+- **`-O0`, both cores, 9/10 programs** — backend ICE `in safe_as_a, at is-a.h:268`
+  during the machine reorg (`mach`) pass. Core-independent, `-O0`-only.
+- **`-Os`, both cores, `loops.c`** — backend ICE, segfault, also in `mach`.
+  Core-independent.
+- **lvx-2 `-O2`, `array.c`** — the assembler rejects GCC's output: *"too many ALU
+  FULL or LITE instructions in bundle"*. A bundle-packing bug on the SIMD path, so
+  GCC's ALU FULL/LITE accounting disagrees with the assembler's. lvx-2 `-Os` builds
+  the same program fine, so it is specific to `-O2`'s scheduling.
+
+An earlier `array.c` failure at lvx-1 `-O2` (GCC emitting `addx2wp`, which the
+assembler rejected) is fixed; the 64-bit SIMD it came from has since been removed.
+
+Note that the ISS runs lvx-2 code — the lvx-2 `-O1` column is a clean 10/10 — but
+none of these programs contain vector types, so the SIMD *execution* path is still
+substantially unvalidated even where it compiles. Beware of proving otherwise with a
+test GCC constant-folds away: a 256-bit `v8si` add of literals compiles to a single
+`maked $r0 = 18`, which exercises nothing.
 
 ## Growing the corpus
 

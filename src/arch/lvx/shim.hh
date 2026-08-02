@@ -53,9 +53,31 @@ struct OperandSlot
 // parallel semantics (#9) run every instruction's FETCH, then every
 // instruction's EXECUTE, then every instruction's COMMIT — each instruction
 // keeps its own context, so all sources are read before any result is written.
+// Conditional execution within a bundle.
+//
+// GUARD occupies a BCU slot and evaluates a predicate; its immediate is a mask
+// of the execution units that predicate guards, numbered from the first unit
+// after the two BCUs, so bit 0 is ALU0, bit 1 is ALU1, and so on.  The
+// assembler builds exactly this mask -- gas tc-lvx.c computes
+// `1 << (target_exu - LVX_EXU_ALU0)` for the instruction being predicated.
+//
+// One of these is shared by every syllable of a bundle, since GUARD executes
+// in one slot and controls others.
+struct BundlePredication
+{
+    bool active = false;      // a GUARD executed in this bundle
+    bool predicate = false;   // the condition it evaluated
+    unsigned exuMask = 0;     // guarded units, bit b == ALU0 + b
+
+    void reset() { active = false; predicate = false; exuMask = 0; }
+};
+
 struct BehaviorContext
 {
     ThreadContext *tc = nullptr;
+
+    // Shared with the other syllables of the bundle; owned by the caller.
+    BundlePredication *predication = nullptr;
 
     // PC of this instruction (bundle base + this syllable's offset). Read by
     // readFromStorage_PC and used as the fall-through base for nextPC.

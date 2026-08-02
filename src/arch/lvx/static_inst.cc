@@ -158,6 +158,7 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
 
         SubInst &si = subInsts[numSubInsts++];
         si.opcode = (unsigned)op;
+        si.exu = (unsigned)exu;
         si.byteOffset = ins.opcodeIndex * sizeof(uint32_t);
         lvx_decode_operands(si.opcode, words, si.decoded);
     }
@@ -256,16 +257,42 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
 
     // One context per sub-instruction so all source reads (fetch) happen before
     // any register write (commit) — VLIW parallel semantics.
+    BundlePredication predication;
     BehaviorContext ctx[MaxBundleSyllables];
-    for (unsigned i = 0; i < numSubInsts; i++)
+    for (unsigned i = 0; i < numSubInsts; i++) {
         ctx[i].reset(tc, base + subInsts[i].byteOffset, fallThrough);
+        ctx[i].predication = &predication;
+    }
+
+    // A syllable is suppressed when a GUARD in this bundle evaluated false and
+    // named that syllable's unit.  Mask bit 0 is ALU0, the first unit after the
+    // two BCUs, matching what the assembler encodes.  The BCU slots themselves
+    // are never guarded -- GUARD lives in one.
+    auto suppressed = [&](unsigned exu) {
+        if (!predication.active || predication.predicate)
+            return false;
+        int bit = (int)exu - (int)EXU_ALU0;
+        return bit >= 0 && bit < 8 && ((predication.exuMask >> bit) & 1u) != 0;
+    };
+    auto isBcu = [](unsigned exu) { return exu == EXU_BCU0 || exu == EXU_BCU1; };
 
     for (unsigned i = 0; i < numSubInsts; i++)
         runPhase(ctx[i], subInsts[i].opcode, BehaviorFetch, subInsts[i].decoded);
+
+    // Execute the BCU slots first: GUARD is one of them, and its predicate has
+    // to be known before the units it guards run.  Sources were all read in the
+    // fetch pass above, so ordering the execute pass this way is invisible to
+    // everything else.
     for (unsigned i = 0; i < numSubInsts; i++)
-        runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute, subInsts[i].decoded);
+        if (isBcu(subInsts[i].exu))
+            runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute, subInsts[i].decoded);
     for (unsigned i = 0; i < numSubInsts; i++)
-        runPhase(ctx[i], subInsts[i].opcode, BehaviorCommit, subInsts[i].decoded);
+        if (!isBcu(subInsts[i].exu) && !suppressed(subInsts[i].exu))
+            runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute, subInsts[i].decoded);
+
+    for (unsigned i = 0; i < numSubInsts; i++)
+        if (!suppressed(subInsts[i].exu))
+            runPhase(ctx[i], subInsts[i].opcode, BehaviorCommit, subInsts[i].decoded);
 
     // Next PC: fall-through unless a (BCU) instruction wrote NPC.
     Addr next = fallThrough;

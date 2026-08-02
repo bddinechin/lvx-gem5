@@ -536,6 +536,39 @@ Behavior__BMT_8(void * /*self*/, uint64_t opnd1)
     return int256_fromUInt64(lvxBitMatrixTranspose8(opnd1));
 }
 
+// Atomic compare-and-swap (the ACSWAP* family).
+//
+// NEWVAL and EXPECTED arrive already split out of the register pair the
+// instruction reads -- low half is the value to write, high half the value to
+// match -- which is the same layout newlib's __lvx_swap_value_t describes.
+//
+// The boolcas modifier picks what comes back: 1 (the bare mnemonic) returns
+// whether the swap happened, 0 (the .V form) returns the previous contents.
+// GCC's compare-and-swap expander uses the former and tests the result against
+// 1, so the sense here is load-bearing.
+//
+// Atomicity is free on AtomicSimpleCPU: the whole helper runs within one
+// instruction, with nothing else executing.
+int256_t
+Behavior_MEM_atomic_cas(void *self, uint64_t addr, int256_t byteMask,
+                        uint64_t modifier, int256_t newval, int256_t expected,
+                        uint8_t /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    bool boolcas = (modifier & 0x1) != 0;
+
+    int256_t current = int256_zero;
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.readBlob((Addr)addr, current.bytes, size);
+
+    bool matched = std::memcmp(current.bytes, expected.bytes, size) == 0;
+    if (matched)
+        proxy.writeBlob((Addr)addr, newval.bytes, size);
+
+    return boolcas ? int256_fromUInt64(matched ? 1 : 0) : current;
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t /*modifier*/, uint8_t /*dri*/)
@@ -865,6 +898,44 @@ Behavior_bcucond(void * /*self*/, uint8_t opnd1, uint64_t opnd2)
       default:
         panic("LVX: unknown bcucond code %d", (int)opnd1);
     }
+}
+
+// Memory ordering.
+//
+// AtomicSimpleCPU executes one instruction at a time, in program order, against
+// memory directly: there is no store buffer to drain and no reordering to
+// prevent, so ordering is already stronger than any fence could ask for.  These
+// become real work only for an out-of-order or multi-core timing model.
+void
+Behavior_MEM_fence(void * /*self*/, uint8_t /*accesses*/)
+{
+}
+
+void
+Behavior_barrier(void * /*self*/)
+{
+}
+
+// Guarded execution prefix.
+//
+// GUARD sits in a BCU slot and predicates other units of the same bundle:
+// ACTIVATE is a mask of the execution units it guards, numbered from the first
+// unit after the two BCUs, so bit 0 is ALU0.  It only records the decision --
+// LvxStaticInst::execute applies it, because suppression has to skip the
+// guarded syllables' execute phase, not just their commit: a store performs its
+// memory write during execute.
+//
+// Nothing here checks that the guarded units exist in this bundle; a mask bit
+// naming an empty slot simply matches no syllable.
+void
+Behavior_guard(void *self, uint8_t bcucond, uint64_t argument, uint8_t activate)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!ctx->predication)
+        return;   // standalone instruction, no bundle to predicate
+    ctx->predication->active = true;
+    ctx->predication->predicate = Behavior_bcucond(self, bcucond, argument);
+    ctx->predication->exuMask = activate;
 }
 
 // SRHPC is a privilege-level saved-PC register updated on return; it has no

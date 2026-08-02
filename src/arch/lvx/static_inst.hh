@@ -36,6 +36,12 @@ struct SubInst
 {
     unsigned opcode = 0;
     unsigned byteOffset = 0;
+    // Issue slot this syllable was steered to, as an Exu value (BCU0, BCU1,
+    // ALU0, ...).  GUARD's immediate is a mask of guarded execution units, so
+    // predication needs to know which unit each syllable landed on.  The
+    // numbering matches the assembler's LVX_EXU enum (gas tc-lvx.c), which is
+    // what encodes the steering in the first place.
+    unsigned exu = 0;
     uint64_t decoded[MaxOperandsPerInst] = {};
 };
 

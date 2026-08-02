@@ -704,7 +704,14 @@ Behavior_syscall(void *self, uint64_t number)
 
       // --- file descriptors ---
       case 4: { // __NR_close(fd)
-        ret(sysResult(::close((int)arg(0))));
+        // The guest's descriptors are the simulator's own, so closing one of
+        // the standard streams would close *gem5's*.  newlib does exactly that
+        // on the way out -- exit() runs the stdio cleanup, which closes stdout
+        // -- and the effect was that everything after it, including gem5's own
+        // "Exiting" line, vanished into a closed fd and the run looked like it
+        // had silently stopped.  Report success without doing it.
+        int fd = (int)arg(0);
+        ret(fd <= 2 ? 0 : sysResult(::close(fd)));
         break;
       }
       case 9: { // __NR_lseek(fd, offset, whence)

@@ -14,9 +14,14 @@
  */
 #include "arch/lvx/shim.hh"
 
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "arch/lvx/regs/int.hh"
@@ -506,10 +511,97 @@ Behavior_MEM_store(void *self, uint64_t addr, int256_t byteMask,
     proxy.writeBlob(address, value.bytes, size);
 }
 
-// Minimal SE-mode system-call handling. The kv4-v1 ABI passes arguments in
-// r0..r7 and returns in r0; the syscall number is the scall operand. This is a
-// milestone-scoped subset (exit, write) done inline rather than through gem5's
-// SyscallDesc machinery — TODO(#10+): route to a proper LvxISA EmuLinux table.
+// --- SE-mode system calls -----------------------------------------------------
+//
+// The syscall numbers and the open()-flag encoding are the target's, defined by
+// lvx-newlib's libgloss in
+//   newlib/libc/sys/mbr/include/mbr/lvx/scall_no.h
+// and issued by libgloss/lvx-mbr/asm_syscalls.S.  Keep the two in sync: the
+// numbering is deliberately kv4-v1's, and that header says so.
+//
+// Calling convention: arguments in r0..r7, result in r0, syscall number in the
+// scall operand.  Errors are reported the way libgloss expects -- the negated
+// errno as the result -- because every wrapper does
+//   if (ret < 0) { errno = ret * -1; ret = -1; }
+// Returning a bare -1 would set errno to 1 (EPERM) for every failure.
+
+// Target open()/fcntl() flags (the S_* set in scall_no.h).  These are the
+// target's own encoding, not the host's, and libgloss has already translated
+// from newlib's O_* into them before the scall -- so translate back here.
+enum LvxOpenFlags
+{
+    LVX_S_RDONLY   = 0x001,
+    LVX_S_WRONLY   = 0x002,
+    LVX_S_RDWR     = 0x004,
+    LVX_S_APPEND   = 0x008,
+    LVX_S_CREAT    = 0x010,
+    LVX_S_TRUNC    = 0x020,
+    LVX_S_EXCL     = 0x040,
+    LVX_S_SYNC     = 0x080,
+    LVX_S_NDELAY   = 0x100,
+    LVX_S_NONBLOCK = 0x200,
+    LVX_S_NOCTTY   = 0x400,
+};
+
+static int
+lvxToHostOpenFlags(uint64_t f)
+{
+    // O_RDONLY is 0 on the host, so the access mode has to be decided rather
+    // than or-ed together: RDWR wins, then WRONLY, then RDONLY.
+    int hf = (f & LVX_S_RDWR)   ? O_RDWR
+           : (f & LVX_S_WRONLY) ? O_WRONLY
+                                : O_RDONLY;
+    if (f & LVX_S_APPEND)   hf |= O_APPEND;
+    if (f & LVX_S_CREAT)    hf |= O_CREAT;
+    if (f & LVX_S_TRUNC)    hf |= O_TRUNC;
+    if (f & LVX_S_EXCL)     hf |= O_EXCL;
+    if (f & LVX_S_SYNC)     hf |= O_SYNC;
+    if (f & LVX_S_NDELAY)   hf |= O_NDELAY;
+    if (f & LVX_S_NONBLOCK) hf |= O_NONBLOCK;
+    if (f & LVX_S_NOCTTY)   hf |= O_NOCTTY;
+    return hf;
+}
+
+// Result of a host call, as libgloss wants to see it.
+static int64_t
+sysResult(int64_t hostRet)
+{
+    return hostRet < 0 ? -(int64_t)errno : hostRet;
+}
+
+static std::string
+readTargetString(ThreadContext *tc, Addr addr)
+{
+    SETranslatingPortProxy proxy(tc);
+    std::string s;
+    proxy.readString(s, addr);
+    return s;
+}
+
+// libgloss's stat/fstat/lstat wrappers do not pass a struct: they pass a
+// uint64_t[13] and unpack it themselves (see libgloss/lvx-mbr/fstat.c), which
+// keeps the target's struct stat layout out of the ISS entirely.
+static void
+writeStatArray(ThreadContext *tc, Addr addr, const struct stat &st)
+{
+    uint64_t r[13];
+    r[0]  = st.st_dev;
+    r[1]  = st.st_ino;
+    r[2]  = st.st_mode;
+    r[3]  = st.st_nlink;
+    r[4]  = st.st_uid;
+    r[5]  = st.st_gid;
+    r[6]  = st.st_rdev;
+    r[7]  = st.st_size;
+    r[8]  = st.st_blksize;
+    r[9]  = st.st_blocks;
+    r[10] = st.st_atime;
+    r[11] = st.st_mtime;
+    r[12] = st.st_ctime;
+    SETranslatingPortProxy proxy(tc);
+    proxy.writeBlob(addr, (const uint8_t *)r, sizeof(r));
+}
+
 void
 Behavior_syscall(void *self, uint64_t number)
 {
@@ -518,27 +610,165 @@ Behavior_syscall(void *self, uint64_t number)
     uint64_t n = number;
     // kv4-v1 argument registers r0..r7.
     auto arg = [&](int i) { return (uint64_t)tc->getReg(intRegClass[i]); };
+    auto ret = [&](int64_t v) { tc->setReg(intRegClass[0], (uint64_t)v); };
 
     switch (n) {
       case 1: { // __NR_exit
         exitSimLoop("target exited", (int)arg(0));
         break;
       }
-      case 17: { // __NR_write(fd, buf, count)
-        int fd = (int)arg(0);
-        Addr buf = (Addr)arg(1);
-        uint64_t count = arg(2);
-        std::vector<uint8_t> data(count);
-        SETranslatingPortProxy proxy(tc);
-        if (count)
-            proxy.readBlob(buf, data.data(), count);
-        ssize_t ret = ::write(fd == 1 || fd == 2 ? fd : 1, data.data(), count);
-        tc->setReg(intRegClass[0], (uint64_t)ret);
+
+      // --- file descriptors ---
+      case 4: { // __NR_close(fd)
+        ret(sysResult(::close((int)arg(0))));
         break;
       }
+      case 9: { // __NR_lseek(fd, offset, whence)
+        ret(sysResult(::lseek((int)arg(0), (off_t)arg(1), (int)arg(2))));
+        break;
+      }
+      case 10: { // __NR_open(path, flags, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::open(path.c_str(), lvxToHostOpenFlags(arg(1)),
+                             (mode_t)arg(2))));
+        break;
+      }
+      case 11: { // __NR_read(fd, buf, count)
+        uint64_t count = arg(2);
+        std::vector<uint8_t> data(count);
+        ssize_t r = ::read((int)arg(0), data.data(), count);
+        if (r > 0) {
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(1), data.data(), r);
+        }
+        ret(sysResult(r));
+        break;
+      }
+      case 17: { // __NR_write(fd, buf, count)
+        int fd = (int)arg(0);
+        uint64_t count = arg(2);
+        std::vector<uint8_t> data(count);
+        if (count) {
+            SETranslatingPortProxy proxy(tc);
+            proxy.readBlob((Addr)arg(1), data.data(), count);
+        }
+        ret(sysResult(::write(fd, data.data(), count)));
+        break;
+      }
+      case 19: { // __NR_isatty(fd)
+        // Never fails from libgloss's point of view: 0 just means "not a tty".
+        ret(::isatty((int)arg(0)));
+        break;
+      }
+      case 28: { // __NR_dup(fd)
+        ret(sysResult(::dup((int)arg(0))));
+        break;
+      }
+      case 29: { // __NR_dup2(oldfd, newfd)
+        ret(sysResult(::dup2((int)arg(0), (int)arg(1))));
+        break;
+      }
+      case 48: { // __NR_fcntl(fd, cmd, arg)
+        // F_SETFL/F_GETFL carry the target's S_* flag encoding; the rest of
+        // the commands libgloss issues take a plain integer.
+        int cmd = (int)arg(1);
+        long a = (long)arg(2);
+        if (cmd == F_SETFL)
+            a = lvxToHostOpenFlags((uint64_t)a);
+        ret(sysResult(::fcntl((int)arg(0), cmd, a)));
+        break;
+      }
+
+      // --- stat family: results go back as uint64_t[13] ---
+      case 6: { // __NR_fstat(fd, res)
+        struct stat st;
+        int r = ::fstat((int)arg(0), &st);
+        if (r == 0)
+            writeStatArray(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+      case 14: { // __NR_stat(path, res)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        struct stat st;
+        int r = ::stat(path.c_str(), &st);
+        if (r == 0)
+            writeStatArray(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+      case 107: { // __NR_lstat(path, res)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        struct stat st;
+        int r = ::lstat(path.c_str(), &st);
+        if (r == 0)
+            writeStatArray(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+
+      // --- name space ---
+      case 7: { // __NR_link(existing, new)
+        std::string oldp = readTargetString(tc, (Addr)arg(0));
+        std::string newp = readTargetString(tc, (Addr)arg(1));
+        ret(sysResult(::link(oldp.c_str(), newp.c_str())));
+        break;
+      }
+      case 8: { // __NR_unlink(path)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::unlink(path.c_str())));
+        break;
+      }
+      case 18: { // __NR_chmod(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::chmod(path.c_str(), (mode_t)arg(1))));
+        break;
+      }
+      case 39: { // __NR_mkdir(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::mkdir(path.c_str(), (mode_t)arg(1))));
+        break;
+      }
+      case 40: { // __NR_rmdir(path)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::rmdir(path.c_str())));
+        break;
+      }
+      case 52: { // __NR_access(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::access(path.c_str(), (int)arg(1))));
+        break;
+      }
+      case 54: { // __NR_chdir(path)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::chdir(path.c_str())));
+        break;
+      }
+      case 0xfe9: { // __NR_iss_mkfifo(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::mkfifo(path.c_str(), (mode_t)arg(1))));
+        break;
+      }
+
+      // --- time ---
+      case 16: { // __NR_gettimeofday(tv, tz)
+        // libgloss's own _gettimeofday reads the cluster timestamp SFR instead
+        // of calling this, but asm_syscalls.S still exports sc_gettimeofday.
+        struct timeval tv;
+        int r = ::gettimeofday(&tv, nullptr);
+        if (r == 0 && arg(0)) {
+            uint64_t out[2] = { (uint64_t)tv.tv_sec, (uint64_t)tv.tv_usec };
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(0), (const uint8_t *)out, sizeof(out));
+        }
+        ret(sysResult(r));
+        break;
+      }
+
       default:
-        warn("LVX: unhandled scall #%llu (ignored)\n", (unsigned long long)n);
-        tc->setReg(intRegClass[0], (uint64_t)-1);
+        warn("LVX: unhandled scall #%llu (returning -ENOSYS)\n",
+             (unsigned long long)n);
+        ret(-ENOSYS);
         break;
     }
 }

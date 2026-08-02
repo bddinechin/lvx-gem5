@@ -56,3 +56,28 @@ byte size) via `--debug-flags=LvxDecode`.
   `code=1` as expected. Floating-point comparisons (`fcompd`/`fcompw`)
   were a narrower follow-on gap the arithmetic fix above didn't cover --
   see the file's own comments.
+
+## System-call regression test
+- `scall` → `code=0` — the SE-mode syscall shim (`Behavior_syscall` in
+  `src/arch/lvx/shim.cc`).  Written in C rather than assembly, since the point
+  is the shim rather than the decoder, and built freestanding against the same
+  `diff/crt0_mbr.S` the differential harness uses:
+
+  ```bash
+  lvx-mbr-as   tests/lvx/diff/crt0_mbr.S -o crt0.o
+  lvx-mbr-gcc  -c -O2 -ffreestanding -fno-builtin -nostdlib tests/lvx/scall.c -o scall.o
+  lvx-mbr-ld   crt0.o scall.o -o scall.elf
+  build/LVX/gem5.opt tests/lvx/run_lvx.py scall.elf
+  ```
+
+  Twelve checks over a real file in `/tmp`: `open`, `write`, `lseek`, `read`
+  (comparing the bytes back), `fstat` (checking `st_size` through the
+  `uint64_t[13]` result array libgloss expects), `isatty`, `close`, `stat`,
+  `access`, `unlink`, `access` again for `-ENOENT`, and an unimplemented number
+  for `-ENOSYS`.  The exit code is the number of the first failing step, so a
+  regression names itself; `code=0` means all twelve passed.  The run also
+  prints one expected `unhandled scall #99` warning, from the last check.
+
+  The syscall numbers and the `S_*` open-flag encoding are the target's, owned
+  by lvx-newlib (`newlib/libc/sys/mbr/include/mbr/lvx/scall_no.h`) and issued by
+  `libgloss/lvx-mbr/asm_syscalls.S`.  Keep the shim and that header in sync.

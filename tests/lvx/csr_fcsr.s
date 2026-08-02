@@ -7,15 +7,15 @@
 #   fcsr[4:0] = fflags, fcsr[7:5] = frm.
 # Expect exit code 0xff (255): fflags=0x1f | (frm=7 << 5)=0xe0.
 _start:
-	make $r1 = 0x1f
+	maked $r1 = 0x1f
 	;;
 	csrrw $r1 = 1          # fflags = 0x1f (r1); r1 = old fflags (0)
 	;;
-	make $r2 = 7
+	maked $r2 = 7
 	;;
 	csrrw $r2 = 2          # frm = 7 (r2); r2 = old frm (0)  -- flags untouched
 	;;
-	make $r4 = 0
+	maked $r4 = 0
 	;;
 	csrrs $r4 = 3          # fcsr |= 0 (unchanged); r4 = current fcsr
 	;;

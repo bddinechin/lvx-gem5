@@ -24,15 +24,15 @@
 	.global	main
 main:
 	## case 1: faddd  2.0 + 3.0 = 5.0
-	make $r0 = 1
+	maked $r0 = 1
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	faddd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4014000000000000ULL		# 5.0
+	maked $r4 = 0x4014000000000000ULL		# 5.0
 	;;
 	ccb.deq $r3, $r4 ? c2
 	;;
@@ -40,15 +40,15 @@ main:
 	;;
 c2:
 	## case 2: fsbfd  ry - rz = 5.0 - 3.0 = 2.0
-	make $r0 = 2
+	maked $r0 = 2
 	;;
-	make $r1 = 0x4008000000000000ULL		# 3.0 (rz)
+	maked $r1 = 0x4008000000000000ULL		# 3.0 (rz)
 	;;
-	make $r2 = 0x4014000000000000ULL		# 5.0 (ry)
+	maked $r2 = 0x4014000000000000ULL		# 5.0 (ry)
 	;;
 	fsbfd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4000000000000000ULL		# 2.0
+	maked $r4 = 0x4000000000000000ULL		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c3
 	;;
@@ -56,15 +56,15 @@ c2:
 	;;
 c3:
 	## case 3: fmuld  2.0 * 3.0 = 6.0
-	make $r0 = 3
+	maked $r0 = 3
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	fmuld $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4018000000000000ULL		# 6.0
+	maked $r4 = 0x4018000000000000ULL		# 6.0
 	;;
 	ccb.deq $r3, $r4 ? c4
 	;;
@@ -72,17 +72,17 @@ c3:
 	;;
 c4:
 	## case 4: ffmad  2.0*3.0 + 1.0 = 7.0  (accumulator is the destination $r3)
-	make $r0 = 4
+	maked $r0 = 4
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
-	make $r3 = 0x3ff0000000000000ULL		# 1.0 (accumulator)
+	maked $r3 = 0x3ff0000000000000ULL		# 1.0 (accumulator)
 	;;
 	ffmad $r3 = $r1, $r2
 	;;
-	make $r4 = 0x401c000000000000ULL		# 7.0
+	maked $r4 = 0x401c000000000000ULL		# 7.0
 	;;
 	ccb.deq $r3, $r4 ? c5
 	;;
@@ -90,17 +90,17 @@ c4:
 	;;
 c5:
 	## case 5: ffmsd  1.0 - 2.0*3.0 = -5.0  (product subtracted from accumulator)
-	make $r0 = 5
+	maked $r0 = 5
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
-	make $r3 = 0x3ff0000000000000ULL		# 1.0 (accumulator)
+	maked $r3 = 0x3ff0000000000000ULL		# 1.0 (accumulator)
 	;;
 	ffmsd $r3 = $r1, $r2
 	;;
-	make $r4 = 0xc014000000000000ULL		# -5.0
+	maked $r4 = 0xc014000000000000ULL		# -5.0
 	;;
 	ccb.deq $r3, $r4 ? c6
 	;;
@@ -108,15 +108,15 @@ c5:
 	;;
 c6:
 	## case 6: fdivd  rz / ry = 6.0 / 3.0 = 2.0
-	make $r0 = 6
+	maked $r0 = 6
 	;;
-	make $r1 = 0x4018000000000000ULL		# 6.0 (rz, numerator)
+	maked $r1 = 0x4018000000000000ULL		# 6.0 (rz, numerator)
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0 (ry, denominator)
+	maked $r2 = 0x4008000000000000ULL		# 3.0 (ry, denominator)
 	;;
 	fdivd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4000000000000000ULL		# 2.0
+	maked $r4 = 0x4000000000000000ULL		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c7
 	;;
@@ -124,13 +124,13 @@ c6:
 	;;
 c7:
 	## case 7: fsqrtd  sqrt(4.0) = 2.0
-	make $r0 = 7
+	maked $r0 = 7
 	;;
-	make $r1 = 0x4010000000000000ULL		# 4.0
+	maked $r1 = 0x4010000000000000ULL		# 4.0
 	;;
 	fsqrtd $r3 = $r1
 	;;
-	make $r4 = 0x4000000000000000ULL		# 2.0
+	maked $r4 = 0x4000000000000000ULL		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c8
 	;;
@@ -138,13 +138,13 @@ c7:
 	;;
 c8:
 	## case 8: frintd  rint(2.75) = 3.0 (round to nearest even, reset $cs.RM = RN)
-	make $r0 = 8
+	maked $r0 = 8
 	;;
-	make $r1 = 0x4006000000000000ULL		# 2.75
+	maked $r1 = 0x4006000000000000ULL		# 2.75
 	;;
 	frintd $r3 = $r1
 	;;
-	make $r4 = 0x4008000000000000ULL		# 3.0
+	maked $r4 = 0x4008000000000000ULL		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c9
 	;;
@@ -152,15 +152,15 @@ c8:
 	;;
 c9:
 	## case 9: fmind  min(2.0, 3.0) = 2.0
-	make $r0 = 9
+	maked $r0 = 9
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	fmind $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4000000000000000ULL		# 2.0
+	maked $r4 = 0x4000000000000000ULL		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c10
 	;;
@@ -168,15 +168,15 @@ c9:
 	;;
 c10:
 	## case 10: fmaxd  max(2.0, 3.0) = 3.0
-	make $r0 = 10
+	maked $r0 = 10
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	fmaxd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4008000000000000ULL		# 3.0
+	maked $r4 = 0x4008000000000000ULL		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c11
 	;;
@@ -184,15 +184,15 @@ c10:
 	;;
 c11:
 	## case 11: fminnd  minNum(2.0, 3.0) = 2.0
-	make $r0 = 11
+	maked $r0 = 11
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	fminnd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4000000000000000ULL		# 2.0
+	maked $r4 = 0x4000000000000000ULL		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c12
 	;;
@@ -200,15 +200,15 @@ c11:
 	;;
 c12:
 	## case 12: fmaxnd  maxNum(2.0, 3.0) = 3.0
-	make $r0 = 12
+	maked $r0 = 12
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0
+	maked $r2 = 0x4008000000000000ULL		# 3.0
 	;;
 	fmaxnd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4008000000000000ULL		# 3.0
+	maked $r4 = 0x4008000000000000ULL		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c13
 	;;
@@ -216,15 +216,15 @@ c12:
 	;;
 c13:
 	## case 13: fmind(NaN, 3.0) = canonical NaN  (min PROPAGATES NaN)
-	make $r0 = 13
+	maked $r0 = 13
 	;;
-	make $r1 = 0x7ff8000000000000ULL		# quiet NaN (rz)
+	maked $r1 = 0x7ff8000000000000ULL		# quiet NaN (rz)
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0 (ry)
+	maked $r2 = 0x4008000000000000ULL		# 3.0 (ry)
 	;;
 	fmind $r3 = $r1, $r2
 	;;
-	make $r4 = 0x7ff8000000000000ULL		# canonical NaN
+	maked $r4 = 0x7ff8000000000000ULL		# canonical NaN
 	;;
 	ccb.deq $r3, $r4 ? c14
 	;;
@@ -233,15 +233,15 @@ c13:
 c14:
 	## case 14: fmaxnd(NaN, 3.0) = 3.0  (maxNum RETURNS THE NUMBER; distinguishes
 	## the Num variant from the NaN-propagating fmaxd)
-	make $r0 = 14
+	maked $r0 = 14
 	;;
-	make $r1 = 0x7ff8000000000000ULL		# quiet NaN (rz)
+	maked $r1 = 0x7ff8000000000000ULL		# quiet NaN (rz)
 	;;
-	make $r2 = 0x4008000000000000ULL		# 3.0 (ry)
+	maked $r2 = 0x4008000000000000ULL		# 3.0 (ry)
 	;;
 	fmaxnd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x4008000000000000ULL		# 3.0
+	maked $r4 = 0x4008000000000000ULL		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c15
 	;;
@@ -249,15 +249,15 @@ c14:
 	;;
 c15:
 	## case 15: fminnd(-0.0, +0.0) = -0.0  (RISC-V FMIN: -0.0 < +0.0)
-	make $r0 = 15
+	maked $r0 = 15
 	;;
-	make $r1 = 0x8000000000000000ULL		# -0.0 (rz)
+	maked $r1 = 0x8000000000000000ULL		# -0.0 (rz)
 	;;
-	make $r2 = 0x0000000000000000ULL		# +0.0 (ry)
+	maked $r2 = 0x0000000000000000ULL		# +0.0 (ry)
 	;;
 	fminnd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x8000000000000000ULL		# -0.0
+	maked $r4 = 0x8000000000000000ULL		# -0.0
 	;;
 	ccb.deq $r3, $r4 ? c16
 	;;
@@ -265,15 +265,15 @@ c15:
 	;;
 c16:
 	## case 16: fmaxnd(-0.0, +0.0) = +0.0  (RISC-V FMAX: +0.0 > -0.0)
-	make $r0 = 16
+	maked $r0 = 16
 	;;
-	make $r1 = 0x8000000000000000ULL		# -0.0 (rz)
+	maked $r1 = 0x8000000000000000ULL		# -0.0 (rz)
 	;;
-	make $r2 = 0x0000000000000000ULL		# +0.0 (ry)
+	maked $r2 = 0x0000000000000000ULL		# +0.0 (ry)
 	;;
 	fmaxnd $r3 = $r1, $r2
 	;;
-	make $r4 = 0x0000000000000000ULL		# +0.0
+	maked $r4 = 0x0000000000000000ULL		# +0.0
 	;;
 	ccb.deq $r3, $r4 ? c17
 	;;
@@ -281,15 +281,15 @@ c16:
 	;;
 c17:
 	## case 17: fmind(-0.0, +0.0) = -0.0  (propagating min also honors -0 < +0)
-	make $r0 = 17
+	maked $r0 = 17
 	;;
-	make $r1 = 0x8000000000000000ULL		# -0.0 (rz)
+	maked $r1 = 0x8000000000000000ULL		# -0.0 (rz)
 	;;
-	make $r2 = 0x0000000000000000ULL		# +0.0 (ry)
+	maked $r2 = 0x0000000000000000ULL		# +0.0 (ry)
 	;;
 	fmind $r3 = $r1, $r2
 	;;
-	make $r4 = 0x8000000000000000ULL		# -0.0
+	maked $r4 = 0x8000000000000000ULL		# -0.0
 	;;
 	ccb.deq $r3, $r4 ? c18
 	;;
@@ -298,19 +298,19 @@ c17:
 c18:
 	## case 18: frintd raises inexact (RISC-V FROUNDNX.D). Clear $cs, round an
 	## inexact value (2.75 -> 3.0), and confirm the IN flag (bit 5 = 0x20) is set.
-	make $r0 = 18
+	maked $r0 = 18
 	;;
-	make $r5 = 0
+	maked $r5 = 0
 	;;
 	set $cs = $r5					# clear exception flags + RM (= RN)
 	;;
-	make $r1 = 0x4006000000000000ULL		# 2.75
+	maked $r1 = 0x4006000000000000ULL		# 2.75
 	;;
 	frintd $r3 = $r1				# -> 3.0, inexact
 	;;
 	get $r6 = $cs					# read CS
 	;;
-	make $r7 = 0x20					# inexact flag (fin << 5)
+	maked $r7 = 0x20					# inexact flag (fin << 5)
 	;;
 	andd $r6 = $r6, $r7				# isolate the inexact bit
 	;;
@@ -320,7 +320,7 @@ c18:
 	;;
 done:
 	## all cases matched
-	make $r0 = 0
+	maked $r0 = 0
 	;;
 	ret
 	;;

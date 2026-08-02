@@ -22,11 +22,11 @@
 # See `fcompd_crash_repro.s` for an isolated repro of that narrower,
 # still-open case.
 _start:
-	make $r5 = 0x4000000000000000ULL       # r5 = 2.0
+	maked $r5 = 0x4000000000000000ULL       # r5 = 2.0
 	;;
-	make $r0 = 0x4008000000000000ULL       # r0 = 3.0
+	maked $r0 = 0x4008000000000000ULL       # r0 = 3.0
 	;;
-	make $r3 = 0x3ff0000000000000ULL       # r3 = 1.0 (ffmad's accumulator)
+	maked $r3 = 0x3ff0000000000000ULL       # r3 = 1.0 (ffmad's accumulator)
 	;;
 	ffmad $r3 = $r5, $r0                   # r3 = r5*r0 + r3 = 2*3+1 = 7.0
 	;;
@@ -40,9 +40,9 @@ _start:
 # Minimal isolation (no ffma-specific logic at all -- uncomment in place of
 # the block above to confirm the crash is FPU-general, not FMA-specific):
 #
-#	make $r5 = 0x4000000000000000ULL       # r5 = 2.0
+#	maked $r5 = 0x4000000000000000ULL       # r5 = 2.0
 #	;;
-#	make $r0 = 0x4008000000000000ULL       # r0 = 3.0
+#	maked $r0 = 0x4008000000000000ULL       # r0 = 3.0
 #	;;
 #	faddd $r0 = $r5, $r0                   # r0 = 5.0
 #	;;

@@ -6,27 +6,27 @@
 # read/write backing (not aliased) and the swap semantics.
 # Expect exit code 0x99 = 153 (mepc 0x11 + mscratch 0x88).
 _start:
-	make $r1 = 0x11
+	maked $r1 = 0x11
 	;;
 	csrrw $r1 = 0x341      # mepc     = 0x11
 	;;
-	make $r2 = 0x22
+	maked $r2 = 0x22
 	;;
 	csrrw $r2 = 0x343      # mtval    = 0x22
 	;;
-	make $r3 = 0x44
+	maked $r3 = 0x44
 	;;
 	csrrw $r3 = 0x305      # mtvec    = 0x44
 	;;
-	make $r4 = 0x88
+	maked $r4 = 0x88
 	;;
 	csrrw $r4 = 0x340      # mscratch = 0x88
 	;;
-	make $r5 = 0
+	maked $r5 = 0
 	;;
 	csrrs $r5 = 0x341      # read mepc     -> 0x11
 	;;
-	make $r6 = 0
+	maked $r6 = 0
 	;;
 	csrrs $r6 = 0x340      # read mscratch -> 0x88
 	;;

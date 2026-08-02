@@ -1,7 +1,7 @@
 	.section .text
 	.global _start
 _start:
-	make $r0 = 5
+	maked $r0 = 5
 	;;
 	sllw $r1 = $r0, 1      # r1 = 10
 	;;

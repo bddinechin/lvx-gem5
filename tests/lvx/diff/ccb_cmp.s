@@ -17,11 +17,11 @@
 	.global	main
 main:
 	## case 1: .deq taken  (5 == 5)
-	make $r0 = 1
+	maked $r0 = 1
 	;;
-	make $r1 = 5
+	maked $r1 = 5
 	;;
-	make $r2 = 5
+	maked $r2 = 5
 	;;
 	ccb.deq $r1, $r2 ? c1
 	;;
@@ -29,11 +29,11 @@ main:
 	;;
 c1:
 	## case 2: .dne taken  (5 != 6)
-	make $r0 = 2
+	maked $r0 = 2
 	;;
-	make $r1 = 5
+	maked $r1 = 5
 	;;
-	make $r2 = 6
+	maked $r2 = 6
 	;;
 	ccb.dne $r1, $r2 ? c2
 	;;
@@ -42,11 +42,11 @@ c1:
 c2:
 	## case 3: .dlt SIGNED taken  (-1 < 1).  Unsigned view (0xffff..f < 1) is false,
 	## so this only branches if the relation is treated as signed.
-	make $r0 = 3
+	maked $r0 = 3
 	;;
-	make $r1 = -1
+	maked $r1 = -1
 	;;
-	make $r2 = 1
+	maked $r2 = 1
 	;;
 	ccb.dlt $r1, $r2 ? c3
 	;;
@@ -54,12 +54,12 @@ c2:
 	;;
 c3:
 	## case 4: .dltu NOT taken  (0xffff..f <u 1 is false) -- same regs as case 3.
-	make $r0 = 4
+	maked $r0 = 4
 	;;
 	ccb.dltu $r1, $r2 ? fail
 	;;
 	## case 5: .dgeu taken  (0xffff..f >=u 1)
-	make $r0 = 5
+	maked $r0 = 5
 	;;
 	ccb.dgeu $r1, $r2 ? c5
 	;;
@@ -67,11 +67,11 @@ c3:
 	;;
 c5:
 	## case 6: .weq taken ignoring the high 32 bits (low32 == 5 for both operands).
-	make $r0 = 6
+	maked $r0 = 6
 	;;
-	make $r1 = 0x100000005
+	maked $r1 = 0x100000005
 	;;
-	make $r2 = 0x200000005
+	maked $r2 = 0x200000005
 	;;
 	ccb.weq $r1, $r2 ? c6
 	;;
@@ -81,11 +81,11 @@ c6:
 	## case 7: .wlt SIGNED-32 taken  (low32: 0xffffffff = -1  <  1).
 	## As a 64-bit compare (0x1ffffffff vs 0x100000001) this is false, so it only
 	## branches if the width is 32-bit.
-	make $r0 = 7
+	maked $r0 = 7
 	;;
-	make $r1 = 0x1ffffffff
+	maked $r1 = 0x1ffffffff
 	;;
-	make $r2 = 0x100000001
+	maked $r2 = 0x100000001
 	;;
 	ccb.wlt $r1, $r2 ? c7
 	;;
@@ -93,16 +93,16 @@ c6:
 	;;
 c7:
 	## case 8: .dlt on the SAME regs is NOT taken (64-bit: 0x1ffffffff > 0x100000001).
-	make $r0 = 8
+	maked $r0 = 8
 	;;
 	ccb.dlt $r1, $r2 ? fail
 	;;
 	## case 9: .dany taken  (0b1010 & 0b0010 = 0b0010 != 0)
-	make $r0 = 9
+	maked $r0 = 9
 	;;
-	make $r1 = 10
+	maked $r1 = 10
 	;;
-	make $r2 = 2
+	maked $r2 = 2
 	;;
 	ccb.dany $r1, $r2 ? c9
 	;;
@@ -110,11 +110,11 @@ c7:
 	;;
 c9:
 	## case 10: .dnone taken  (0b1000 & 0b0001 = 0)
-	make $r0 = 10
+	maked $r0 = 10
 	;;
-	make $r1 = 8
+	maked $r1 = 8
 	;;
-	make $r2 = 1
+	maked $r2 = 1
 	;;
 	ccb.dnone $r1, $r2 ? c10
 	;;
@@ -122,7 +122,7 @@ c9:
 	;;
 c10:
 	## all cases behaved correctly
-	make $r0 = 0
+	maked $r0 = 0
 	;;
 	ret
 	;;

@@ -9,19 +9,19 @@
 	.global	main
 main:
 	## case 1: faddh 2+3=5 (0x4500)
-	make $r0 = 1
+	maked $r0 = 1
 	;;
-	make $r5 = 0xffff
+	maked $r5 = 0xffff
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	faddh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4500		# 5.0
+	maked $r4 = 0x4500		# 5.0
 	;;
 	ccb.deq $r3, $r4 ? c2
 	;;
@@ -29,17 +29,17 @@ main:
 	;;
 c2:
 	## case 2: fsbfh ry-rz = 5-3 = 2 (0x4000)
-	make $r0 = 2
+	maked $r0 = 2
 	;;
-	make $r1 = 0x4200		# 3.0 (rz)
+	maked $r1 = 0x4200		# 3.0 (rz)
 	;;
-	make $r2 = 0x4500		# 5.0 (ry)
+	maked $r2 = 0x4500		# 5.0 (ry)
 	;;
 	fsbfh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4000		# 2.0
+	maked $r4 = 0x4000		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c3
 	;;
@@ -47,17 +47,17 @@ c2:
 	;;
 c3:
 	## case 3: fmulh 2*3=6 (0x4600)
-	make $r0 = 3
+	maked $r0 = 3
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fmulh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4600		# 6.0
+	maked $r4 = 0x4600		# 6.0
 	;;
 	ccb.deq $r3, $r4 ? c4
 	;;
@@ -65,19 +65,19 @@ c3:
 	;;
 c4:
 	## case 4: ffmah 2*3+1=7 (0x4700)
-	make $r0 = 4
+	maked $r0 = 4
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
-	make $r3 = 0x3c00		# 1.0 (accumulator)
+	maked $r3 = 0x3c00		# 1.0 (accumulator)
 	;;
 	ffmah $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4700		# 7.0
+	maked $r4 = 0x4700		# 7.0
 	;;
 	ccb.deq $r3, $r4 ? c5
 	;;
@@ -85,19 +85,19 @@ c4:
 	;;
 c5:
 	## case 5: ffmsh 1-2*3=-5 (0xc500)
-	make $r0 = 5
+	maked $r0 = 5
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
-	make $r3 = 0x3c00		# 1.0 (accumulator)
+	maked $r3 = 0x3c00		# 1.0 (accumulator)
 	;;
 	ffmsh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0xc500		# -5.0
+	maked $r4 = 0xc500		# -5.0
 	;;
 	ccb.deq $r3, $r4 ? c6
 	;;
@@ -105,17 +105,17 @@ c5:
 	;;
 c6:
 	## case 6: fdivh 6/3=2 (0x4000)
-	make $r0 = 6
+	maked $r0 = 6
 	;;
-	make $r1 = 0x4600		# 6.0 (rz)
+	maked $r1 = 0x4600		# 6.0 (rz)
 	;;
-	make $r2 = 0x4200		# 3.0 (ry)
+	maked $r2 = 0x4200		# 3.0 (ry)
 	;;
 	fdivh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4000		# 2.0
+	maked $r4 = 0x4000		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c7
 	;;
@@ -123,15 +123,15 @@ c6:
 	;;
 c7:
 	## case 7: fsqrth sqrt(4)=2 (0x4000)
-	make $r0 = 7
+	maked $r0 = 7
 	;;
-	make $r1 = 0x4400		# 4.0
+	maked $r1 = 0x4400		# 4.0
 	;;
 	fsqrth $r3 = $r1
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4000		# 2.0
+	maked $r4 = 0x4000		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c8
 	;;
@@ -139,15 +139,15 @@ c7:
 	;;
 c8:
 	## case 8: frinth rint(2.75)=3 (0x4200)
-	make $r0 = 8
+	maked $r0 = 8
 	;;
-	make $r1 = 0x4180		# 2.75
+	maked $r1 = 0x4180		# 2.75
 	;;
 	frinth $r3 = $r1
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4200		# 3.0
+	maked $r4 = 0x4200		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c9
 	;;
@@ -155,17 +155,17 @@ c8:
 	;;
 c9:
 	## case 9: fminh min(2,3)=2
-	make $r0 = 9
+	maked $r0 = 9
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fminh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4000		# 2.0
+	maked $r4 = 0x4000		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c10
 	;;
@@ -173,17 +173,17 @@ c9:
 	;;
 c10:
 	## case 10: fmaxh max(2,3)=3
-	make $r0 = 10
+	maked $r0 = 10
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fmaxh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4200		# 3.0
+	maked $r4 = 0x4200		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c11
 	;;
@@ -191,17 +191,17 @@ c10:
 	;;
 c11:
 	## case 11: fminnh minNum(2,3)=2
-	make $r0 = 11
+	maked $r0 = 11
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fminnh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4000		# 2.0
+	maked $r4 = 0x4000		# 2.0
 	;;
 	ccb.deq $r3, $r4 ? c12
 	;;
@@ -209,17 +209,17 @@ c11:
 	;;
 c12:
 	## case 12: fmaxnh maxNum(2,3)=3
-	make $r0 = 12
+	maked $r0 = 12
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fmaxnh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4200		# 3.0
+	maked $r4 = 0x4200		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c13
 	;;
@@ -227,17 +227,17 @@ c12:
 	;;
 c13:
 	## case 13: fminh(NaN,3) = canonical NaN (propagate)
-	make $r0 = 13
+	maked $r0 = 13
 	;;
-	make $r1 = 0x7e00		# qNaN f16
+	maked $r1 = 0x7e00		# qNaN f16
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fminh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x7e00		# canonical NaN
+	maked $r4 = 0x7e00		# canonical NaN
 	;;
 	ccb.deq $r3, $r4 ? c14
 	;;
@@ -245,17 +245,17 @@ c13:
 	;;
 c14:
 	## case 14: fmaxnh(NaN,3) = 3 (return number)
-	make $r0 = 14
+	maked $r0 = 14
 	;;
-	make $r1 = 0x7e00		# qNaN f16
+	maked $r1 = 0x7e00		# qNaN f16
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fmaxnh $r3 = $r1, $r2
 	;;
 	andd $r3 = $r3, $r5
 	;;
-	make $r4 = 0x4200		# 3.0
+	maked $r4 = 0x4200		# 3.0
 	;;
 	ccb.deq $r3, $r4 ? c15
 	;;
@@ -263,15 +263,15 @@ c14:
 	;;
 c15:
 	## case 15: fcomph.oeq(2,2)=1
-	make $r0 = 15
+	maked $r0 = 15
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4000		# 2.0
+	maked $r2 = 0x4000		# 2.0
 	;;
 	fcomph.oeq $r3 = $r1, $r2
 	;;
-	make $r4 = 1
+	maked $r4 = 1
 	;;
 	ccb.deq $r3, $r4 ? c16
 	;;
@@ -279,15 +279,15 @@ c15:
 	;;
 c16:
 	## case 16: fcomph.olt(2,3)=1
-	make $r0 = 16
+	maked $r0 = 16
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
-	make $r2 = 0x4200		# 3.0
+	maked $r2 = 0x4200		# 3.0
 	;;
 	fcomph.olt $r3 = $r1, $r2
 	;;
-	make $r4 = 1
+	maked $r4 = 1
 	;;
 	ccb.deq $r3, $r4 ? c17
 	;;
@@ -295,20 +295,20 @@ c16:
 	;;
 c17:
 	## case 17: fclassh classify(2.0) = +normal = bit 6 = 0x40
-	make $r0 = 17
+	maked $r0 = 17
 	;;
-	make $r1 = 0x4000		# 2.0
+	maked $r1 = 0x4000		# 2.0
 	;;
 	fclassh $r3 = $r1
 	;;
-	make $r4 = 0x40			# +normal
+	maked $r4 = 0x40			# +normal
 	;;
 	ccb.deq $r3, $r4 ? done
 	;;
 	goto fail
 	;;
 done:
-	make $r0 = 0
+	maked $r0 = 0
 	;;
 	ret
 	;;

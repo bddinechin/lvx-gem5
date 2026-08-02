@@ -18,9 +18,9 @@
 # `fcompd.olt $r1 = $r3, $r0` correctly -- never an encoding mismatch,
 # same pattern as the original arithmetic bug.
 _start:
-	make $r3 = 0xc01a666666666666ULL       # r3 = -6.6
+	maked $r3 = 0xc01a666666666666ULL       # r3 = -6.6
 	;;
-	make $r0 = 0                           # r0 = 0.0
+	maked $r0 = 0                           # r0 = 0.0
 	;;
 	fcompd.olt $r1 = $r3, $r0               # r1 = (r3 < r0) ? 1 : 0
 	;;

@@ -12,13 +12,13 @@
 	.global	main
 main:
 	## case 1: fsrecd rec(2.0) = 0x3fdfe00000000000
-	make $r0 = 1
+	maked $r0 = 1
 	;;
-	make $r1 = 0x4000000000000000ULL		# 2.0
+	maked $r1 = 0x4000000000000000ULL		# 2.0
 	;;
 	fsrecd $r3 = $r1
 	;;
-	make $r4 = 0x3fdfe00000000000ULL
+	maked $r4 = 0x3fdfe00000000000ULL
 	;;
 	ccb.deq $r3, $r4 ? c2
 	;;
@@ -26,13 +26,13 @@ main:
 	;;
 c2:
 	## case 2: fsrecd rec(3.0) = 0x3fd5400000000000
-	make $r0 = 2
+	maked $r0 = 2
 	;;
-	make $r1 = 0x4008000000000000ULL		# 3.0
+	maked $r1 = 0x4008000000000000ULL		# 3.0
 	;;
 	fsrecd $r3 = $r1
 	;;
-	make $r4 = 0x3fd5400000000000ULL
+	maked $r4 = 0x3fd5400000000000ULL
 	;;
 	ccb.deq $r3, $r4 ? c3
 	;;
@@ -40,13 +40,13 @@ c2:
 	;;
 c3:
 	## case 3: fsrsrd rsqrt(4.0) = 0x3fdfe00000000000
-	make $r0 = 3
+	maked $r0 = 3
 	;;
-	make $r1 = 0x4010000000000000ULL		# 4.0
+	maked $r1 = 0x4010000000000000ULL		# 4.0
 	;;
 	fsrsrd $r3 = $r1
 	;;
-	make $r4 = 0x3fdfe00000000000ULL
+	maked $r4 = 0x3fdfe00000000000ULL
 	;;
 	ccb.deq $r3, $r4 ? c4
 	;;
@@ -54,13 +54,13 @@ c3:
 	;;
 c4:
 	## case 4: fsrsrd rsqrt(1.0) = 0x3fefe00000000000
-	make $r0 = 4
+	maked $r0 = 4
 	;;
-	make $r1 = 0x3ff0000000000000ULL		# 1.0
+	maked $r1 = 0x3ff0000000000000ULL		# 1.0
 	;;
 	fsrsrd $r3 = $r1
 	;;
-	make $r4 = 0x3fefe00000000000ULL
+	maked $r4 = 0x3fefe00000000000ULL
 	;;
 	ccb.deq $r3, $r4 ? c5
 	;;
@@ -68,13 +68,13 @@ c4:
 	;;
 c5:
 	## case 5: fsrecw rec(2.0f) = 0x3eff0000
-	make $r0 = 5
+	maked $r0 = 5
 	;;
-	make $r1 = 0x40000000		# 2.0f
+	maked $r1 = 0x40000000		# 2.0f
 	;;
 	fsrecw $r3 = $r1
 	;;
-	make $r4 = 0x3eff0000
+	maked $r4 = 0x3eff0000
 	;;
 	ccb.weq $r3, $r4 ? c6
 	;;
@@ -82,13 +82,13 @@ c5:
 	;;
 c6:
 	## case 6: fsrecw rec(3.0f) = 0x3eaa0000
-	make $r0 = 6
+	maked $r0 = 6
 	;;
-	make $r1 = 0x40400000		# 3.0f
+	maked $r1 = 0x40400000		# 3.0f
 	;;
 	fsrecw $r3 = $r1
 	;;
-	make $r4 = 0x3eaa0000
+	maked $r4 = 0x3eaa0000
 	;;
 	ccb.weq $r3, $r4 ? c7
 	;;
@@ -96,13 +96,13 @@ c6:
 	;;
 c7:
 	## case 7: fsrsrw rsqrt(4.0f) = 0x3eff0000
-	make $r0 = 7
+	maked $r0 = 7
 	;;
-	make $r1 = 0x40800000		# 4.0f
+	maked $r1 = 0x40800000		# 4.0f
 	;;
 	fsrsrw $r3 = $r1
 	;;
-	make $r4 = 0x3eff0000
+	maked $r4 = 0x3eff0000
 	;;
 	ccb.weq $r3, $r4 ? c8
 	;;
@@ -110,20 +110,20 @@ c7:
 	;;
 c8:
 	## case 8: fsrsrw rsqrt(1.0f) = 0x3f7f0000
-	make $r0 = 8
+	maked $r0 = 8
 	;;
-	make $r1 = 0x3f800000		# 1.0f
+	maked $r1 = 0x3f800000		# 1.0f
 	;;
 	fsrsrw $r3 = $r1
 	;;
-	make $r4 = 0x3f7f0000
+	maked $r4 = 0x3f7f0000
 	;;
 	ccb.weq $r3, $r4 ? done
 	;;
 	goto fail
 	;;
 done:
-	make $r0 = 0
+	maked $r0 = 0
 	;;
 	ret
 	;;

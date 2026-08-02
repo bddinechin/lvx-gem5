@@ -4,9 +4,9 @@
 # body entirely (LVX/Tensilica), where KVX LOOPDO would loop forever.
 # Expect exit code 0 (body never runs).
 _start:
-	make $r0 = 0
+	maked $r0 = 0
 	;;
-	make $r1 = 0          # trip count 0
+	maked $r1 = 0          # trip count 0
 	;;
 	loopdo $r1, .Lend     # count == 0 -> skip: next PC = .Lend
 	;;

@@ -18,13 +18,13 @@
 	.global	main
 main:
 	## --- Part A: per-lane write (xmovetd), whole-reg read (xmovefo) ---
-	make $r0 = 17
+	maked $r0 = 17
 	;;
-	make $r1 = 34
+	maked $r1 = 34
 	;;
-	make $r2 = 51
+	maked $r2 = 51
 	;;
-	make $r3 = 68
+	maked $r3 = 68
 	;;
 	xmovetd $a0.x = $r0
 	;;
@@ -45,13 +45,13 @@ main:
 	sbfd $r7 = $r3, $r7
 	;;
 	## --- Part B: whole-reg write from two GPR pairs (xmoveto), read back ---
-	make $r16 = 1000
+	maked $r16 = 1000
 	;;
-	make $r17 = 2000
+	maked $r17 = 2000
 	;;
-	make $r18 = 3000
+	maked $r18 = 3000
 	;;
-	make $r19 = 4000
+	maked $r19 = 4000
 	;;
 	xmoveto $a1 = $r16r17, $r18r19
 	;;

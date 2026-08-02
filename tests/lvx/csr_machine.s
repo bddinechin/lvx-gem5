@@ -6,15 +6,15 @@
 # (If a csrnumber failed to dispatch it would THROW -> the ISS would abort.)
 # Expect exit code 0.
 _start:
-	make $r0 = 0xFF
+	maked $r0 = 0xFF
 	;;
 	csrrw $r0 = 0xF11      # mvendorid: r0 <- 0 (write of 0xFF ignored)
 	;;
-	make $r1 = 0xFF
+	maked $r1 = 0xFF
 	;;
 	csrrs $r1 = 0xF14      # mhartid:   r1 <- 0
 	;;
-	make $r2 = 0xFF
+	maked $r2 = 0xFF
 	;;
 	csrrc $r2 = 0x301      # misa:      r2 <- 0
 	;;

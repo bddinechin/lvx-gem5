@@ -1,6 +1,6 @@
 	.global _start
 _start:
-	make $r1 = 88 ; make $r2 = 100
+	maked $r1 = 88 ; maked $r2 = 100
 	;;
 	addd $r0 = $r1, $r2
 	;;

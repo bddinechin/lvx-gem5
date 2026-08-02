@@ -485,6 +485,57 @@ lvxAccessSize(uint32_t byteMask)
     return 1;
 }
 
+// --- 8x8 bit-matrix operators -------------------------------------------------
+//
+// The SBMM8* / SBMT8* family treats a 64-bit value as an 8x8 matrix of bits and
+// multiplies or transposes it over GF(2), where "multiply" is AND and "add" is
+// XOR.  Bit i*8+j of the matrix is row i, column j.
+//
+// Small, but not optional: newlib's memset uses sbmm8d to splat a byte across a
+// word, and crt0 reaches memset through _REENT_INIT_PTR, so until these existed
+// every hosted program died in startup on the panic stub.
+
+// c[i] = XOR over the j where row i of A has a bit set, of b[j].  That is, the
+// bits of A select which bytes of B are XORed into each byte of the result.
+static inline uint64_t
+lvxBitMatrixMultiply8 (uint64_t a, uint64_t b)
+{
+    uint64_t c = 0;
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++) {
+            if (a & 0x1)
+                c ^= ((b >> (j * 8)) & 0xFF) << (i * 8);
+            a >>= 1;
+        }
+    return c;
+}
+
+// Reflect the matrix about its diagonal: bit i*8+j moves to bit j*8+i.
+static inline uint64_t
+lvxBitMatrixTranspose8 (uint64_t a)
+{
+    uint64_t b = 0;
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++) {
+            if (a & 0x1)
+                b ^= UINT64_C(1) << ((j * 8) + i);
+            a >>= 1;
+        }
+    return b;
+}
+
+int256_t
+Behavior__BMM_8(void * /*self*/, uint64_t opnd1, uint64_t opnd2)
+{
+    return int256_fromUInt64(lvxBitMatrixMultiply8(opnd1, opnd2));
+}
+
+int256_t
+Behavior__BMT_8(void * /*self*/, uint64_t opnd1)
+{
+    return int256_fromUInt64(lvxBitMatrixTranspose8(opnd1));
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t /*modifier*/, uint8_t /*dri*/)

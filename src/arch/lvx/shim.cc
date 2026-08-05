@@ -66,6 +66,49 @@ writeSfr(ThreadContext *tc, unsigned idx, uint64_t val)
     tc->setMiscReg(idx, val);
 }
 
+// WHICH index maps WHERE is a fact of the description and nothing else, so it is
+// not written here: generated/regfile_map.inc carries one row per exception,
+// emitted by MDS/BE/GEM5/BIN/regfile-map.pl.  What stays hand-written is how to
+// read each Storage, which is a fact of this port -- the split the whole
+// addressing rework is about (MDS/DOC/Addressing-model-plan.md).
+//
+// For LVX the map is 7 rows, all in SFR: index 0 is the PC, held apart from the
+// misc-regs by this port (see regs/misc.hh), and 96..101 are the owner-write
+// aliases sitting at the addresses of the registers they alias.  Reading index 0
+// returned misc-reg 0 before this -- an unused slot rather than the program
+// counter.
+static inline uint64_t
+readSfrFromStorage_SRS(BehaviorContext *ctx, unsigned address)
+{
+    return readSfr(ctx->tc, address);
+}
+
+static inline uint64_t
+readSfrFromStorage_PC(BehaviorContext *ctx, unsigned /*address*/)
+{
+    return ctx->instPC;
+}
+
+static inline uint64_t
+readSfrByFileIndex(BehaviorContext *ctx, unsigned index)
+{
+    switch (index) {
+// Only SFR is indexed at run time, so only its rows are handled.  A row for any
+// other file dispatches to an undefined LVX_REGFILE_MAP_<file> and so fails to
+// compile -- deliberately: it would mean some other file had grown an exception
+// and needed a decision here, which is better caught than defaulted.
+#define LVX_REGFILE_MAP(file, idx, storage, address) \
+    LVX_REGFILE_MAP_##file(idx, storage, address)
+#define LVX_REGFILE_MAP_SFR(idx, storage, address) \
+    case idx: return readSfrFromStorage_##storage(ctx, address);
+#include "arch/lvx/generated/regfile_map.inc"
+#undef LVX_REGFILE_MAP_SFR
+#undef LVX_REGFILE_MAP
+    default: return readSfr(ctx->tc, index);
+    }
+}
+
+
 // --- LVX vector file (XVR/XBR/XCR), all views of the XRS 64-bit cells ----------
 // XVR reg i is XRS cells [4i..4i+3] = one 256-bit VecRegContainer; XBR i is cells
 // [2i..2i+1]; XCR i is cell [i]. Lane order is little-endian (cell 4i == dword 0).
@@ -198,8 +241,13 @@ void
 Behavior_operandFromRegFile_SFR(void *self, unsigned /*stage*/, int /*rank*/,
                                 int opnd_idx, int register_id)
 {
+    // Through readSfrByFileIndex, not readSfr: register_id is an index into the
+    // SFR *file*, and this is the path a systemReg OPERAND takes.  `get $r1 =
+    // $s0` arrives here, not at readFromStorage_SFR, so the file's exceptions
+    // have to be honoured in both places or the fix only covers half of them.
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    ctx->operands[opnd_idx].value = int256_fromUInt64(readSfr(ctx->tc, register_id));
+    ctx->operands[opnd_idx].value =
+        int256_fromUInt64(readSfrByFileIndex(ctx, register_id));
     ctx->operands[opnd_idx].flags = AccessNone;
 }
 
@@ -311,6 +359,13 @@ Behavior_writeToStorage_CS(void *self, unsigned /*stage*/, unsigned /*offset*/,
     (void)self;
 }
 
+// One SFR-file index, resolved to the value it actually names.
+//
+// The SFR *register file* and the SRS *storage* share a numbering for 505 of
+// their 512 entries, which is why every constant-indexed access in the
+// description now addresses SRS directly. Seven entries do not, and only a
+// run-time index can land on them, so this is the one place that has to care:
+//
 int256_t
 Behavior_readFromStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
                              unsigned extent, unsigned size)
@@ -319,7 +374,7 @@ Behavior_readFromStorage_SFR(void *self, unsigned /*stage*/, unsigned offset,
     assert((extent * size) < 128);
     uint64_t v = 0;
     for (unsigned i = 0; i < extent; ++i)
-        v = (v << (size * i)) | readSfr(ctx->tc, offset + i);
+        v = (v << (size * i)) | readSfrByFileIndex(ctx, offset + i);
     return int256_fromUInt64(v);
 }
 

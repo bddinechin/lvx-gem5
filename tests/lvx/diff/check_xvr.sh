@@ -4,7 +4,7 @@
 #
 # gcc has no lvx-2 codegen, so this cannot go through the C native<->ISS diff
 # harness. Instead xvr_move.s is a self-checking lvx-2 assembly program: it moves
-# known values into the XVR/XCR vector registers and back (xmovetd/xmoveto ->
+# known values into the XVR/XCR vector registers and back (xmovetd/xputqo ->
 # xmovefo/xmovefd) and returns 0 iff every lane round-tripped. We assemble it
 # with -march=lvx-2, link with the shared crt0, run under gem5-lvx2, and require
 # exit code 0 -- which exercises the vector register model (arch/lvx/regs/vec.hh)
@@ -35,7 +35,7 @@ out="$(timeout 120 "$GEM5" --outdir="$work/m5" "$RUNCFG" "$work/xvr.elf" 2>&1)"
 code="$(printf '%s' "$out" | grep -oE 'code=-?[0-9]+' | grep -oE '\-?[0-9]+' | head -1)"
 
 if [ "${code:-x}" = "0" ]; then
-    echo "XVR ISS check  PASS (xmovetd/xmoveto/xmovefo/xmovefd round-trip)"
+    echo "XVR ISS check  PASS (xmovetd/xputqo/xmovefo/xmovefd round-trip)"
     exit 0
 elif [ -z "${code:-}" ]; then
     echo "XVR ISS check  FAIL (no exit code from gem5)"

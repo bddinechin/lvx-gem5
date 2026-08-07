@@ -9,7 +9,7 @@
 	## Part A: xmovetd writes each of the four 64-bit lanes of XVR $a0 from a GPR
 	##         (GPR -> XCR lane); xmovefo reads the whole 256-bit $a0 into a GPR
 	##         quad (XVR -> 4 GPRs). Proves the overlay: 4 XCR cells == 1 XVR reg.
-	## Part B: xmoveto writes XVR $a1 from two GPR pairs (2x128 -> 256); xmovefo
+	## Part B: xputqo writes XVR $a1 from two GPR pairs (2x128 -> 256); xmovefo
 	##         reads it back. Proves the write-whole-register path.
 	## Part C: xmovefd reads lane 0 of $a0 back (XCR -> GPR), cross-checking A.
 	.section .text
@@ -44,7 +44,7 @@ main:
 	;;
 	sbfd $r7 = $r3, $r7
 	;;
-	## --- Part B: whole-reg write from two GPR pairs (xmoveto), read back ---
+	## --- Part B: whole-reg write from two GPR pairs (xputqo), read back ---
 	maked $r16 = 1000
 	;;
 	maked $r17 = 2000
@@ -53,7 +53,7 @@ main:
 	;;
 	maked $r19 = 4000
 	;;
-	xmoveto $a1 = $r16r17, $r18r19
+	xputqo $a1 = $r16r17, $r18r19
 	;;
 	xmovefo $r20r21r22r23 = $a1
 	;;

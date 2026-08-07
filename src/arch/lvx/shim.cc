@@ -125,7 +125,7 @@ readSfrByFileIndex(BehaviorContext *ctx, unsigned index)
 // owner's rank is read from at run time -- is a fact of the description and so is
 // not written here: generated/ownership.inc carries it, emitted by
 // MDS/BE/GEM5/BIN/ownership.pl from Register@raccess/@waccess and
-// BitRange@owners/@rerror/@werror.  The walk mirrors
+// BitField@owners/@rerror/@werror.  The walk mirrors
 // ../kv4-csw/iss_core/iss/include/kvx/helpers_core.h:Behavior_default_check_access.
 //
 // SE mode runs at PL0: PS resets to zero and nothing user code can execute

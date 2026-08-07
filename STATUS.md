@@ -64,7 +64,7 @@ instead of a stub. Implemented:
   owns each field, with the field's `rerror`/`werror` deciding what a refusal
   means (read through, read as zero, drop the write, or trap). The table comes
   from MDS (`generated/ownership.inc`, from `MDS/BE/GEM5/BIN/ownership.pl` over
-  `Register@raccess/@waccess` and `BitRange@owners/@rerror/@werror`); the walk
+  `Register@raccess/@waccess` and `BitField@owners/@rerror/@werror`); the walk
   mirrors KVX's `Behavior_default_check_access`. SE mode runs at PL0, so nothing
   the ISS runs today can be refused, which is why `tests/lvx/diff/
   check_ownership.sh` leaves PL0 on purpose. A refusal that the description says

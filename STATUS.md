@@ -56,9 +56,19 @@ instead of a stub. Implemented:
 
 - **Core + control/system** (`shim.cc`): the operand/register/storage/memory/
   syscall set, plus `branch_info`, `srhpc_update`, `bcucond`, `intcomp_32/64`,
-  `ccbcomp`, `get`, and the `get/set/wfxl/wfxm_check_access` permission checks
-  (SE permits all), implementing the LVX scalar-integer control/compare
-  semantics.
+  `ccbcomp`, `get`, and the `get/set/wfxl/wfxm_check_access` permission checks,
+  implementing the LVX scalar-integer control/compare semantics.
+- **System-register ownership** (`shim.cc`, US11995218): the four
+  `*_check_access` helpers are the real per-bit-field privilege check, not the
+  `return true` they used to be — the current ring (PS.PL) against the ring that
+  owns each field, with the field's `rerror`/`werror` deciding what a refusal
+  means (read through, read as zero, drop the write, or trap). The table comes
+  from MDS (`generated/ownership.inc`, from `MDS/BE/GEM5/BIN/ownership.pl` over
+  `Register@raccess/@waccess` and `BitRange@owners/@rerror/@werror`); the walk
+  mirrors KVX's `Behavior_default_check_access`. SE mode runs at PL0, so nothing
+  the ISS runs today can be refused, which is why `tests/lvx/diff/
+  check_ownership.sh` leaves PL0 on purpose. A refusal that the description says
+  is a trap panics: SE mode has no ring to divert it to.
 - **Floating point** (`shim_fp.cc`, over Berkeley SoftFloat in `ext/softfloat`,
   RISC-V specialization): the **complete scalar f16/f32/f64 surface** —
   arithmetic (add/sub/mul/fma/div/sqrt/rint), min/max (all four RISC-V variants),

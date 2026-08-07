@@ -19,6 +19,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <string>
@@ -108,6 +110,252 @@ readSfrByFileIndex(BehaviorContext *ctx, unsigned index)
     }
 }
 
+
+// --- system-register access permission (US11995218) ---------------------------
+//
+// Every system register is owned, bit-field by bit-field, by one of four
+// protection rings PL0..PL3 -- PL0 the most privileged -- and the owning ring is
+// itself held in a small field of an owner register (SYO/ITO/HTO/DO/MO/PSO), so
+// which ring owns what is programmable rather than fixed.  An access issued from
+// a ring less privileged than a field's owner is refused, and what "refused"
+// means is stated per field: a read either reads through anyway, reads as zero,
+// or traps; a write either is dropped, is performed, or traps.
+//
+// Which field of which register is owned by which owner field -- and where that
+// owner's rank is read from at run time -- is a fact of the description and so is
+// not written here: generated/ownership.inc carries it, emitted by
+// MDS/BE/GEM5/BIN/ownership.pl from Register@raccess/@waccess and
+// BitRange@owners/@rerror/@werror.  The walk mirrors
+// ../kv4-csw/iss_core/iss/include/kvx/helpers_core.h:Behavior_default_check_access.
+//
+// SE mode runs at PL0: PS resets to zero and nothing user code can execute
+// raises PS.PL, so no ownership check can fail and this is behaviour-neutral for
+// every program the ISS runs today.  It is still a real check rather than a
+// constant, because the description says what it is.
+
+namespace
+{
+
+enum class Raccess { NONE, GET };
+enum class Waccess { NONE, SET, WFX };
+enum class Rerror  { READ, READ0, TRAP_PRIVILEGE };
+enum class Werror  { NONE, WRITE, TRAP_PRIVILEGE };
+
+// Where one owner's rank is read from: a field of a system register.
+struct OwnershipOwner
+{
+    uint16_t index;      // the owner register's index in the SFR file
+    uint8_t offset;      // bit offset of the rank within it
+    uint8_t width;
+};
+
+struct OwnershipField
+{
+    uint8_t offset;
+    uint8_t width;
+    Rerror rerror;
+    Werror werror;
+    uint16_t ownerFirst; // this field's owners are ownershipOwners[first..first+count)
+    uint8_t ownerCount;
+};
+
+struct OwnershipRegister
+{
+    Raccess raccess;
+    Waccess waccess;
+    uint16_t fieldFirst; // this register's fields are ownershipFields[first..first+count)
+    uint8_t fieldCount;
+};
+
+// Only the SFR file is owned.  A row naming any other file dispatches to an
+// undefined LVX_OWNERSHIP_*_<file> and so fails to compile -- deliberately, the
+// same way regfile_map.inc above does: it would mean a second register file had
+// grown ownership and needed a decision here.
+#define LVX_OWNERSHIP_REGISTER(file, index, raccess, waccess, first, count) \
+    LVX_OWNERSHIP_REGISTER_##file(index, raccess, waccess, first, count)
+#define LVX_OWNERSHIP_REGISTER_SFR(index, raccess, waccess, first, count) \
+    { Raccess::raccess, Waccess::waccess, first, count },
+const OwnershipRegister ownershipRegisters[] = {
+#include "arch/lvx/generated/ownership.inc"
+};
+#undef LVX_OWNERSHIP_REGISTER_SFR
+#undef LVX_OWNERSHIP_REGISTER
+
+#define LVX_OWNERSHIP_FIELD(offset, width, rerror, werror, first, count) \
+    { offset, width, Rerror::rerror, Werror::werror, first, count },
+const OwnershipField ownershipFields[] = {
+#include "arch/lvx/generated/ownership.inc"
+};
+#undef LVX_OWNERSHIP_FIELD
+
+#define LVX_OWNERSHIP_OWNER(file, index, offset, width) \
+    LVX_OWNERSHIP_OWNER_##file(index, offset, width)
+#define LVX_OWNERSHIP_OWNER_SFR(index, offset, width) { index, offset, width },
+const OwnershipOwner ownershipOwners[] = {
+#include "arch/lvx/generated/ownership.inc"
+};
+#undef LVX_OWNERSHIP_OWNER_SFR
+#undef LVX_OWNERSHIP_OWNER
+
+// The table is indexed by SFR file index, so it has to cover the whole file.
+static_assert(sizeof(ownershipRegisters) / sizeof(ownershipRegisters[0]) ==
+              misc_reg::NumRegs,
+              "ownership.inc does not cover the whole SFR file");
+
+// Which of the four permission checks is being made.  Get/Set/Wfx are the three
+// accesses the description distinguishes (Register@raccess/@waccess), and WFX
+// ranks above SET: a WFXL of a SET-only register is refused, a SET of a
+// WFX register is not.
+enum class Access { Get, Set, Wfx };
+
+inline uint64_t
+bitRangeMask(unsigned offset, unsigned width)
+{
+    uint64_t all = width >= 64 ? ~uint64_t{0} : (uint64_t{1} << width) - 1;
+    return all << offset;
+}
+
+// The ring the running code is in.
+unsigned
+currentPl(BehaviorContext *ctx)
+{
+    uint64_t ps = readSfr(ctx->tc, misc_reg::PS) | misc_reg::ps::SE_MODE_VALUE;
+    return (ps >> misc_reg::ps::PL_SHIFT) &
+           ((uint64_t{1} << misc_reg::ps::PL_WIDTH) - 1);
+}
+
+unsigned
+ownerPl(BehaviorContext *ctx, const OwnershipOwner &owner)
+{
+    uint64_t value = readSfrByFileIndex(ctx, owner.index);
+    return (value >> owner.offset) & ((uint64_t{1} << owner.width) - 1);
+}
+
+// The permission check itself: `mask` is the bits the access touches.  Returns
+// whether the access may proceed; `readZero`, for a read, collects the bits that
+// must read as zero instead of trapping.
+//
+// A refusal that the description says is a trap has nowhere to go in SE mode --
+// there is no handler to divert to and no ring to divert it to -- so it panics
+// rather than being silently allowed.  Unreachable at PL0.
+bool
+checkAccess(BehaviorContext *ctx, unsigned sfr, Access access, uint64_t mask,
+            uint64_t *readZero)
+{
+    assert(readZero != nullptr || access != Access::Get);
+    if (sfr >= misc_reg::NumRegs)
+        panic("LVX: system register index %u is outside the SFR file", sfr);
+    const OwnershipRegister &reg = ownershipRegisters[sfr];
+
+    // The register-level permission comes first, and is not an ownership
+    // question: a GET of a register the ISA does not make readable is an invalid
+    // instruction whatever ring issues it.
+    if (access == Access::Get) {
+        if (reg.raccess != Raccess::GET)
+            panic("LVX: GET of system register %u, which is not readable", sfr);
+    } else if (reg.waccess == Waccess::NONE ||
+               (access == Access::Wfx && reg.waccess != Waccess::WFX)) {
+        panic("LVX: %s of system register %u, which does not support it",
+              access == Access::Wfx ? "WFX" : "SET", sfr);
+    }
+
+    const unsigned pl = currentPl(ctx);
+    if (pl == 0)
+        return true;    // PL0 is at least as privileged as any owner
+
+    bool trapped = false;
+    unsigned trapPl = 0;     // the least privileged owner that refused
+
+    for (unsigned f = reg.fieldFirst; f < unsigned(reg.fieldFirst) + reg.fieldCount; f++) {
+        const OwnershipField &field = ownershipFields[f];
+
+        // The banked per-level registers state a refusal behaviour but no owner:
+        // their level is the register's own index, not anything read at run
+        // time.  That rule is not in the table (KVX keeps it out of its table
+        // too, in kvx_simple_pl_check_access), so those fields go unchecked.
+        if (field.ownerCount == 0)
+            continue;
+
+        if (!(bitRangeMask(field.offset, field.width) & mask))
+            continue;
+
+        // One owner per bit iff there are exactly as many owners as bits;
+        // otherwise the field is owned jointly and the most privileged owner
+        // decides (the PMC.PM<n>IE fields, owned by MO_PMIT and MO_PM<n>).
+        const bool perBit = field.ownerCount == field.width;
+        unsigned jointPl = ~0u;
+        if (!perBit) {
+            for (unsigned k = 0; k < field.ownerCount; k++)
+                jointPl = std::min(jointPl,
+                                   ownerPl(ctx, ownershipOwners[field.ownerFirst + k]));
+        }
+
+        for (unsigned b = 0; b < field.width; b++) {
+            const uint64_t bit = uint64_t{1} << (field.offset + b);
+            if (!(bit & mask))
+                continue;
+            const unsigned owner = perBit
+                ? ownerPl(ctx, ownershipOwners[field.ownerFirst + b])
+                : jointPl;
+            if (pl <= owner)
+                continue;               // this ring is privileged enough
+
+            if (access == Access::Get) {
+                switch (field.rerror) {
+                  case Rerror::READ:
+                    break;              // refused, but readable anyway
+                  case Rerror::READ0:
+                    *readZero |= perBit ? bit : bitRangeMask(field.offset, field.width);
+                    break;
+                  case Rerror::TRAP_PRIVILEGE:
+                    trapped = true;
+                    trapPl = std::max(trapPl, owner);
+                    break;
+                }
+            } else {
+                switch (field.werror) {
+                  case Werror::WRITE:
+                    break;              // refused, but writable anyway
+                  case Werror::NONE:
+                    // The field keeps its old value while the rest of the write
+                    // goes through.  These helpers answer yes or no for the
+                    // whole access and cannot express that, and no LVX field
+                    // asks for it -- every werror in the description is
+                    // TRAP_PRIVILEGE.  Refuse loudly rather than write it.
+                    panic("LVX: write to system register %u must leave bits "
+                          "[%u+%u] unmodified, which this check cannot express",
+                          sfr, field.offset, field.width);
+                    break;
+                  case Werror::TRAP_PRIVILEGE:
+                    trapped = true;
+                    trapPl = std::max(trapPl, owner);
+                    break;
+                }
+            }
+            if (!perBit)
+                break;                  // one decision for the whole field
+        }
+    }
+
+    if (trapped)
+        panic("LVX: privilege trap on %s of system register %u from PL%u "
+              "(owned by PL%u); SE mode has no handler to divert it to",
+              access == Access::Get ? "GET" : access == Access::Wfx ? "WFX" : "SET",
+              sfr, pl, trapPl);
+    return true;
+}
+
+// The bits a WFXL/WFXM alters: the low word of the operand is the clear mask and
+// the high word the set mask, applied to the low (WFXL) or high (WFXM) word of
+// the register.
+inline uint64_t
+wfxMask(uint64_t value, bool high)
+{
+    uint64_t word = (value | (value >> 32)) & UINT64_C(0xffffffff);
+    return high ? word << 32 : word;
+}
+
+} // anonymous namespace
 
 // --- LVX vector file (XVR/XBR/XCR), all views of the XRS 64-bit cells ----------
 // XVR reg i is XRS cells [4i..4i+3] = one 256-bit VecRegContainer; XBR i is cells
@@ -1007,23 +1255,49 @@ Behavior_srhpc_update(void * /*self*/)
 {
 }
 
-// System-register (SFR) access permission checks.  The full model gates these
-// on the current privilege level (../epi-csw/iss_core/.../helpers_core.h); in
-// SE-mode user execution there is no privilege model, so every access the
-// program makes is permitted.  GET/SET of $ra in every function prologue/
-// epilogue go through get_check_access / set_check_access.
-bool Behavior_get_check_access (void *, uint16_t, uint8_t)            { return true; }
-bool Behavior_set_check_access (void *, uint16_t, uint64_t, uint8_t) { return true; }
-bool Behavior_wfxl_check_access(void *, uint16_t, uint8_t)           { return true; }
-bool Behavior_wfxm_check_access(void *, uint16_t, uint8_t)           { return true; }
+bool
+Behavior_get_check_access(void *self, uint16_t sfr, uint8_t /*gpr*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    uint64_t readZero = 0;   // applied by Behavior_get, which has the value
+    return checkAccess(ctx, sfr, Access::Get, ~uint64_t{0}, &readZero);
+}
+
+bool
+Behavior_set_check_access(void *self, uint16_t sfr, uint64_t /*value*/, uint8_t /*gpr*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    return checkAccess(ctx, sfr, Access::Set, ~uint64_t{0}, nullptr);
+}
+
+bool
+Behavior_wfxl_check_access(void *self, uint16_t sfr, uint8_t gpr)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    uint64_t mask = wfxMask(readGpr(ctx->tc, gpr), /*high=*/false);
+    return checkAccess(ctx, sfr, Access::Wfx, mask, nullptr);
+}
+
+bool
+Behavior_wfxm_check_access(void *self, uint16_t sfr, uint8_t gpr)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    uint64_t mask = wfxMask(readGpr(ctx->tc, gpr), /*high=*/true);
+    return checkAccess(ctx, sfr, Access::Wfx, mask, nullptr);
+}
 
 // GET reads an SFR: the value is already loaded from the SFR file by the
-// behavior (readFromStorage_SFR); `get` returns it, with no per-bit privilege
-// masking or clear-on-read side effects in SE mode.  opnd2 is that value.
+// behavior (readFromStorage_SFR); `get` returns it, minus the fields this ring
+// is not privileged enough to see and whose rerror says to read them as zero.
+// (get_check_access has already run and has already trapped on any field whose
+// rerror says to trap, so the only work left here is the masking.)
 int256_t
-Behavior_get(void * /*self*/, uint16_t /*sfr*/, uint64_t value)
+Behavior_get(void *self, uint16_t sfr, uint64_t value)
 {
-    return int256_fromUInt64(value);
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    uint64_t readZero = 0;
+    checkAccess(ctx, sfr, Access::Get, ~uint64_t{0}, &readZero);
+    return int256_fromUInt64(value & ~readZero);
 }
 
 // Integer comparison (COMP*).  opnd1 is the `intcomp` modifier code, opnd2/opnd3

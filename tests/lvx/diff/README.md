@@ -78,6 +78,21 @@ compiles. Beware of proving otherwise with a test GCC constant-folds away: a
 256-bit `v8si` add of literals compiles to a single `maked $r0 = 18`, which
 exercises nothing.
 
+## Standalone checks beside the matrix
+
+Some behaviour has no x86 equivalent to diff against, so it is checked directly by
+a `check_*.sh` in this directory: `check_highmult.sh` (the four `muld` variants),
+`check_fp.sh` / `check_fpn.sh` / `check_fcomp.sh` / `check_conv.sh` (the scalar FP
+surface), `check_ccb.sh` (the fused compare-and-branch predicates), `check_xvr.sh`
+(the lvx-2 vector moves) and **`check_ownership.sh`** (system-register ownership).
+
+`check_ownership.sh` is the odd one: everything else here runs at PL0, where the
+ownership model is invisible by construction, so its two programs leave PL0 on
+purpose. `ownership.s` covers the refusals that are not traps (`$men` reads back at
+PL0 and reads as zero at PL1) and `ownership_trap.s` the one that is (a PL1 write
+to `$men` must panic the ISS, since SE mode has no ring to divert a privilege trap
+to). Together they are what keeps the check from being dead code.
+
 ## Hosted programs
 
 A newlib-linked program now runs end to end under the ISS — `printf` of integers

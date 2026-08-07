@@ -59,6 +59,12 @@ namespace ps
 enum : unsigned
 {
     HLE_BIT = LVX_SFR_PS_HLE_SHIFT, // PS.HLE -- hardware-loop enable
+
+    // PS.PL -- the protection ring the code is running in, PL0 the most
+    // privileged (US11995218). SE mode leaves it at 0, so every system-register
+    // ownership check passes; the check is still made (see shim.cc).
+    PL_SHIFT = LVX_SFR_PS_PL_SHIFT,
+    PL_WIDTH = LVX_SFR_PS_PL_WIDTH,
 };
 
 inline constexpr uint64_t SE_MODE_VALUE = (uint64_t{1} << HLE_BIT);

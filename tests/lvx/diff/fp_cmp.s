@@ -297,7 +297,8 @@ c17:
 	;;
 c18:
 	## case 18: frintd raises inexact (RISC-V FROUNDNX.D). Clear $cs, round an
-	## inexact value (2.75 -> 3.0), and confirm the IN flag (bit 5 = 0x20) is set.
+	## inexact value (2.75 -> 3.0), and confirm the IN flag (bit 0 = 0x01) is set.
+	## The flags sit at RISC-V's fflags positions, so IN is the low bit.
 	maked $r0 = 18
 	;;
 	maked $r5 = 0
@@ -310,7 +311,7 @@ c18:
 	;;
 	get $r6 = $cs					# read CS
 	;;
-	maked $r7 = 0x20					# inexact flag (fin << 5)
+	maked $r7 = 0x01					# inexact flag (fin << 0)
 	;;
 	andd $r6 = $r6, $r7				# isolate the inexact bit
 	;;

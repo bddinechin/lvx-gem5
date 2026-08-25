@@ -349,12 +349,17 @@ Behavior_f##SW##_to_f##DW(void * /*self*/, uint8_t rm, uint##SW##_t a)          
 
 // float -> wider float (RISC-V FCVT.f'.f): exact widening; canonicalizes NaN.
 // The generated prototype returns a bare int256_t (no rm, no flag tuple).
+// Widening is exact -- every f16 is representable in f32 and every f32 in f64 --
+// so there is no rounding mode and the only exception it can raise is NV, on a
+// signalling NaN. Verified exhaustively over all 65536 f16 inputs and by sweep
+// over f32: NV and nothing else. Same {value, io} shape as min/max.
 #define FP_WIDEN(SW, DW)                                                       \
-int256_t                                                                       \
+Tuple_##DW##_1                                                                 \
 Behavior_f##SW##_to_f##DW(void * /*self*/, uint##SW##_t a)                     \
 {                                                                              \
+    softfloat_exceptionFlags = 0;                                             \
     float##DW##_t r = f##SW##_to_f##DW(float##SW##_t{a});                      \
-    return int256_fromUInt64(r.v);                                            \
+    return Tuple_##DW##_1{ r.v, flagIO() };                                   \
 }
 
 extern "C" {

@@ -133,7 +133,8 @@ constexpr uint64_t kDefaultNaN64 = UINT64_C(0x7FF8000000000000);
 // comparison of a and b (either NaN => unordered, else less/greater/equal, with
 // +0.0 == -0.0). Matches the KVX reference and RISC-V compare results (OEQ =
 // FEQ, OLT = FLT, OGE = a>=b i.e. FLE swapped; odd codes are the negations).
-// Quiet compares -- a quiet NaN raises nothing, and no flag is threaded anyway.
+// Quiet compares -- a quiet NaN raises nothing; a signalling NaN raises NV,
+// which FP_COMPARE below threads out as the second tuple element.
 #define FP_CMP_HELPER(W)                                                  \
 inline bool lvxFloatcomp##W(uint8_t code, uint64_t a, uint64_t b)         \
 {                                                                         \
@@ -265,12 +266,17 @@ Behavior_f##W##_max(void * /*self*/, uint64_t a, uint64_t b)                    
 }
 
 // FCOMPD/W/H: boolean predicate; no exception flags threaded.
+// Returns {predicate, NV}.  The predicate is the value; the flag is real --
+// the quiet comparisons raise invalid on a *signalling* NaN, which is the one
+// exception an IEEE compare can produce, and the description now has somewhere
+// to put it.
 #define FP_COMPARE(W)                                                           \
-bool                                                                            \
+Tuple_1_1                                                                       \
 Behavior_floatcomp_##W(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)   \
 {                                                                              \
     softfloat_exceptionFlags = 0;                                              \
-    return lvxFloatcomp##W(code, a, b);                                        \
+    bool p = lvxFloatcomp##W(code, a, b);                                      \
+    return Tuple_1_1{ (uint8_t)p, flagIO() };                                  \
 }
 
 // FCLASS: RISC-V classification bitmask.
@@ -284,25 +290,28 @@ Behavior_f##W##_classify(void * /*self*/, uint64_t a)                          \
 // FSREC/FSRSR: RISC-V vfrec7/vfrsqrt7 -- the standardized 7-bit reciprocal and
 // reciprocal-square-root SEED estimates. LVX's seed ops carry no rounding-mode
 // operand, so rounding is fixed to round-to-nearest (the natural default for a
-// coarse estimate). Their generated prototype returns a bare int256_t with no
-// flag tuple, so only the value is threaded (recip7/rsqrte7's exceptions are
-// discarded -- the helper signature has no way to report them).
+// coarse estimate) -- which is why these take no rm and yet still report flags.
+//
+// The flag sets are the ones SoftFloat can actually raise, established by
+// sweeping the f32 space: recip7 -> NV, DZ, OF, NX; rsqrte7 -> NV, DZ only.
+// Order follows the description's convention io, dz, ov, un, in, omitting the
+// ones the operation cannot raise, as add/sub and min/max already do.
 #define FP_FAST(W)                                                            \
-int256_t                                                                       \
+Tuple_##W##_1_1_1_1                                                            \
 Behavior_f##W##_fast_rec(void * /*self*/, uint64_t a)                          \
 {                                                                              \
     softfloat_roundingMode = softfloat_round_near_even;                       \
     softfloat_exceptionFlags = 0;                                             \
     float##W##_t r = f##W##_recip7(fp##W(a));                                  \
-    return int256_fromUInt64(r.v);                                            \
+    return Tuple_##W##_1_1_1_1{ r.v, flagIO(), flagDZ(), flagOV(), flagIN() }; \
 }                                                                             \
-int256_t                                                                       \
+Tuple_##W##_1_1                                                                \
 Behavior_f##W##_fast_rsqrt(void * /*self*/, uint64_t a)                        \
 {                                                                              \
     softfloat_roundingMode = softfloat_round_near_even;                       \
     softfloat_exceptionFlags = 0;                                             \
     float##W##_t r = f##W##_rsqrte7(fp##W(a));                                 \
-    return int256_fromUInt64(r.v);                                            \
+    return Tuple_##W##_1_1{ r.v, flagIO(), flagDZ() };                        \
 }
 
 // float -> integer (RISC-V FCVT.{i,u}{32,64}.{f}): round per rm, exact=true;

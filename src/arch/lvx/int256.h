@@ -115,10 +115,26 @@ int256_div(int256_t a, int256_t b)
     return r;
 }
 static inline int256_t
-int256_mod(int256_t a, int256_t b)
+int256_rem(int256_t a, int256_t b)
 {
     int256_t r = int256_zero;
     int128_t m = (int128_t)a.qwords[0] % (int128_t)b.qwords[0];
+    r.qwords[0] = (uint128_t)m;
+    if (m < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
+    return r;
+}
+/* Floored modulo, NOT C's %: the result takes the sign of the DIVISOR, so
+ * -1 MOD 5 == 4.  That is what Behavior's MOD means and what MDS/LIB/Width.pm
+ * bounds it by (|a mod b| < |b|, and not bounded by |a|).  C's % is the
+ * truncated remainder that pairs with C's / -- that is int256_rem above, and
+ * REM is the operator the divmod instructions use. */
+static inline int256_t
+int256_mod(int256_t a, int256_t b)
+{
+    int256_t r = int256_zero;
+    int128_t d = (int128_t)b.qwords[0];
+    int128_t m = (int128_t)a.qwords[0] % d;
+    if (m != 0 && ((m < 0) != (d < 0))) m += d;
     r.qwords[0] = (uint128_t)m;
     if (m < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
     return r;

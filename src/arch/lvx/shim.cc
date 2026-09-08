@@ -898,6 +898,33 @@ Behavior_MEM_store(void *self, uint64_t addr, int256_t byteMask,
     proxy.writeBlob(address, value.bytes, size);
 }
 
+// Data-misalignment trap (HTO_DMIS in the ownership model, "Data MISalign
+// access").  The atomics require their effective address to be a multiple of
+// the access size, and since the alignment check moved into the description
+// this is where that requirement lands: MDS emits
+//
+//     if ((address & 7) != 0) _THROW(MISALIGN, address, 8);
+//
+// ahead of the MEM_atomic_* call.  Before it, a misaligned atomic was simply
+// performed -- SETranslatingPortProxy does not care -- so the ISS silently
+// disagreed with the architecture.
+//
+// SE mode has no trap handler to divert to, so this stops the simulation the
+// way the privilege trap above does.  Reporting the address and the required
+// alignment is the point of wiring it at all: left as a generated panic stub
+// it called lvx_behavior_unimpl(), which says only that some helper is
+// missing.
+void
+Behavior_throw_MISALIGN(void *self, uint64_t addr, uint8_t size)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    panic("LVX: misaligned atomic access to 0x%llx at PC 0x%llx: the address "
+          "must be a multiple of %u; SE mode has no handler to divert the "
+          "DMIS trap to",
+          (unsigned long long)addr, (unsigned long long)ctx->instPC,
+          (unsigned)size);
+}
+
 // --- SE-mode system calls -----------------------------------------------------
 //
 // The syscall numbers and the open()-flag encoding are the target's, defined by

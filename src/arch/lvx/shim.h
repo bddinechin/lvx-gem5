@@ -55,6 +55,13 @@ void Behavior_commitRegFiles(void *);
 int256_t Behavior_MEM_load (void *, uint64_t, int256_t, uint8_t, uint8_t);
 void    Behavior_MEM_store(void *, uint64_t, int256_t, uint8_t, int256_t, uint8_t);
 
+/* Data-misalignment trap (HTO_DMIS), thrown by the atomics when the effective
+ * address is not a multiple of the access size.  opnd1 = that address,
+ * opnd2 = the size it must be a multiple of -- passed in because a
+ * BehaviorContext cannot recover either, and an alignment report without them
+ * says nothing.  Does not return. */
+void    Behavior_throw_MISALIGN(void *, uint64_t /*address*/, uint8_t /*size*/);
+
 /* System-call trap (scall). opnd1 = syscall number; arguments are in r0..r7,
  * return value goes in r0 (kv4-v1 ABI). */
 void Behavior_syscall(void *, uint64_t /*number*/);

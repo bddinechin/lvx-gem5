@@ -104,12 +104,34 @@ static inline int256_t int256_abs(int256_t a) { return (a.dwords[3] >> 63) ? int
 /* --- multiply: low 128 of the product (operands pre-extended by sx/zx) --- */
 static inline int256_t int256_mul(int256_t a, int256_t b) { return int256_fromUInt128(a.qwords[0] * b.qwords[0]); }
 
-/* --- divide/modulo: low-128 signed (operands are sign/zero-extended to 256) --- */
+/* --- divide/modulo: low-128 signed (operands are sign/zero-extended to 256) ---
+ *
+ * Four operators, Haskell's, and the pairing is what matters: QUOT with REM
+ * truncates toward zero and the remainder takes the sign of the DIVIDEND, which
+ * is what C's / and % do; DIV with MOD floors toward -infinity and the remainder
+ * takes the sign of the DIVISOR, which C has no operator for.  They agree
+ * whenever the operands share a sign and part company otherwise:
+ *
+ *      a    b | QUOT  REM | DIV  MOD
+ *     -7    2 |   -3   -1 |  -4    1
+ *      7   -2 |   -3    1 |  -4   -1
+ */
+static inline int256_t
+int256_quot(int256_t a, int256_t b)
+{
+    int256_t r = int256_zero;
+    int128_t q = (int128_t)a.qwords[0] / (int128_t)b.qwords[0];
+    r.qwords[0] = (uint128_t)q;
+    if (q < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
+    return r;
+}
 static inline int256_t
 int256_div(int256_t a, int256_t b)
 {
     int256_t r = int256_zero;
-    int128_t q = (int128_t)a.qwords[0] / (int128_t)b.qwords[0];
+    int128_t n = (int128_t)a.qwords[0], d = (int128_t)b.qwords[0];
+    int128_t q = n / d;
+    if ((n % d) != 0 && ((n < 0) != (d < 0))) q--;      /* round toward -inf */
     r.qwords[0] = (uint128_t)q;
     if (q < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
     return r;
@@ -123,11 +145,8 @@ int256_rem(int256_t a, int256_t b)
     if (m < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
     return r;
 }
-/* Floored modulo, NOT C's %: the result takes the sign of the DIVISOR, so
- * -1 MOD 5 == 4.  That is what Behavior's MOD means and what MDS/LIB/Width.pm
- * bounds it by (|a mod b| < |b|, and not bounded by |a|).  C's % is the
- * truncated remainder that pairs with C's / -- that is int256_rem above, and
- * REM is the operator the divmod instructions use. */
+/* Floored remainder: the sign of the DIVISOR, so -1 MOD 5 == 4.  Bounded by |b|
+ * and not by |a|, which is the asymmetry MDS/LIB/Width.pm relies on. */
 static inline int256_t
 int256_mod(int256_t a, int256_t b)
 {
@@ -139,8 +158,6 @@ int256_mod(int256_t a, int256_t b)
     if (m < 0) r.dwords[2] = r.dwords[3] = ~0ULL;
     return r;
 }
-static inline int256_t int256_divu(int256_t a, int256_t b) { return int256_fromUInt128(a.qwords[0] / b.qwords[0]); }
-static inline int256_t int256_modu(int256_t a, int256_t b) { return int256_fromUInt128(a.qwords[0] % b.qwords[0]); }
 
 /* --- shifts: dword-limb, full 256-bit --- */
 static inline int256_t

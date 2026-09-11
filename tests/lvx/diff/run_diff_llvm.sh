@@ -18,11 +18,16 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 gem5root="$(cd "$here/../../.." && pwd)"
 
-BIN="${LVX_TOOLCHAIN_BIN:-/home/guembu/bd3/lvx-csw/lvx-toolchain/bin}"
+# Defaults derived from this script's own location, like every other check here:
+# the absolute ones that used to be written out named /home/guembu/bd3/lvx-llvm,
+# which predates the move into lvx-csw and resolves to nothing, so the clang and
+# llc defaults pointed at files that are not there.
+csw="$(cd "$gem5root/.." && pwd)"
+BIN="${LVX_TOOLCHAIN_BIN:-$csw/lvx-toolchain/bin}"
 GEM5="${GEM5:-$gem5root/build/LVX/gem5.opt}"
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
-CLANG="${CLANG:-/home/guembu/bd3/lvx-llvm/llvm-project/build/bin/clang}"
-LLC="${LLC:-/home/guembu/bd3/lvx-llvm/llvm-project/build/bin/llc}"
+CLANG="${CLANG:-$csw/lvx-llvm/llvm-project/build/bin/clang}"
+LLC="${LLC:-$csw/lvx-llvm/llvm-project/build/bin/llc}"
 export LVX_CPU="${LVX_CPU:-atomic}"
 HOSTCC="${HOSTCC:-cc}"
 OPTS="${OPTS:--O2}"

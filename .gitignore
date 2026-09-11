@@ -38,3 +38,6 @@ configs/dram/lowp_sweep.cfg
 .vscode
 typings
 .DS_Store
+
+# Delivered by lvx-mds from lvx-refs (superproject: make export); not versioned here.
+/src/arch/lvx/lvx_registers.h

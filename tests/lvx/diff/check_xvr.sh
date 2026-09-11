@@ -16,7 +16,7 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 gem5root="$(cd "$here/../../.." && pwd)"
 
-BIN="${LVX_TOOLCHAIN_BIN:-/home/bd3/lvx-csw/lvx-toolchain/bin}"
+BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
 GEM5="${GEM5:-$gem5root/build/gem5-lvx2.opt}"
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
 export LVX_CPU="${LVX_CPU:-atomic}"

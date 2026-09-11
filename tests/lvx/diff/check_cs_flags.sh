@@ -20,8 +20,13 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 gem5root="$(cd "$here/../../.." && pwd)"
 
-BIN="${LVX_TOOLCHAIN_BIN:-/home/bd3/lvx-csw/lvx-toolchain/bin}"
-GEM5="${GEM5:-$gem5root/build/LVX/gem5.opt}"
+BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
+# The ISS to run on. These build with the toolchain's default -march, which
+# is lvx-1, so the lvx-1 simulator is the one that matches. The default used
+# to be build/LVX/gem5.opt -- a single unnamed executable that is in fact the
+# lvx-2 build, so these ran lvx-1 programs on the lvx-2 ISS and nothing said
+# so. GEM5 still overrides, for chasing one core deliberately.
+GEM5="${GEM5:-$gem5root/build/gem5-lvx1.opt}"
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
 export LVX_CPU="${LVX_CPU:-atomic}"
 

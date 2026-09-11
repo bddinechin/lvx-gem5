@@ -26,15 +26,34 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 gem5root="$(cd "$here/../../.." && pwd)"
 
-BIN="${LVX_TOOLCHAIN_BIN:-/home/bd3/lvx-csw/lvx-toolchain/bin}"
-GEM5="${GEM5:-$gem5root/build/LVX/gem5.opt}"
+BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
+# The ISS is chosen PER MARCH, not once. This matrix builds every cell for
+# both cores (MARCH below), and the default used to be a single unnamed
+# build/LVX/gem5.opt -- which is in fact the lvx-2 executable, so the lvx-1
+# half of the matrix ran on the lvx-2 simulator and nothing said so. That
+# matters here more than anywhere: the lvx-2 columns are what catch a
+# wrong-core BE/GEM5 install, and they cannot if both columns are lvx-2.
+#
+# GEM5 still overrides both, for pinning the whole run to one simulator
+# deliberately.
+GEM5_LVX1="${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}"
+GEM5_LVX2="${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}"
+gem5_for() {
+    [ -n "${GEM5:-}" ] && { printf '%s' "$GEM5"; return; }
+    case "$1" in
+        lvx-1) printf '%s' "$GEM5_LVX1" ;;
+        lvx-2) printf '%s' "$GEM5_LVX2" ;;
+        *) echo "no ISS known for -march=$1" >&2; exit 2 ;;
+    esac
+}
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
 export LVX_CPU="${LVX_CPU:-atomic}"
 HOSTCC="${HOSTCC:-cc}"
 MARCH="${MARCH:-lvx-1 lvx-2}"
 OPTS="${OPTS:--O0 -O1 -O2 -Os}"
 
-for tool in "$BIN/lvx-mbr-gcc" "$BIN/lvx-mbr-as" "$BIN/lvx-mbr-ld" "$GEM5" "$RUNCFG"; do
+for tool in "$BIN/lvx-mbr-gcc" "$BIN/lvx-mbr-as" "$BIN/lvx-mbr-ld" "$RUNCFG" \
+            $(for m in $MARCH; do gem5_for "$m"; echo; done); do
     [ -e "$tool" ] || { echo "missing: $tool"; exit 2; }
 done
 
@@ -113,7 +132,8 @@ run_one() {
     fi
 
     local out code
-    out="$(timeout 120 "$GEM5" --outdir="$work/m5" "$RUNCFG" "$work/p.elf" 2>&1)"
+    local gem5; gem5="$(gem5_for "$m")"
+    out="$(timeout 120 "$gem5" --outdir="$work/m5" "$RUNCFG" "$work/p.elf" 2>&1)"
     code="$(printf '%s' "$out" | grep -oE 'exited \(code=[0-9]+\)' | grep -oE '[0-9]+' | head -1)"
     if [ -z "$code" ]; then
         local why; why="$(printf '%s' "$out" | grep -oiE 'panic|fatal|Illegal instruction|timed out' | head -1)"

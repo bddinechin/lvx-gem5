@@ -872,6 +872,148 @@ Behavior_MEM_atomic_cas(void *self, uint64_t addr, int256_t byteMask,
     return boolcas ? int256_fromUInt64(matched ? 1 : 0) : current;
 }
 
+// --- the atomic read-modify-write family --------------------------------------
+//
+// One helper shape serves the whole AL*/AS* family: the AL* forms call these
+// through an APPLY and keep the result, the AS* forms through an EFFECT and
+// discard it, so implementing the operation covers both.  Every one returns the
+// PREVIOUS memory contents -- "its previous value is returned into the %2".
+//
+// The operand and the result are the low `size` bytes; readBlob/writeBlob of
+// `size` truncate for us, and the returned value is zero-filled above, which is
+// what the behaviour then sign- or zero-extends as the instruction requires.
+//
+// Signedness lives here rather than in the caller: MIN/MAX order the operands as
+// signed at the ACCESS width, so a byte 0xff is -1 and not 255, and MINU/MAXU
+// order the same bits unsigned.  Sign-extending from `size` is therefore part of
+// the operation, not of the load.
+//
+// Atomicity is free on AtomicSimpleCPU for the reason MEM_atomic_cas gives: the
+// whole helper runs within one instruction, with nothing else executing.
+enum class LvxAtomicOp { Add, And, Ior, Eor, Min, Max, MinU, MaxU, Dus, Swap };
+
+static uint64_t
+lvxSignExtend(uint64_t value, unsigned size)
+{
+    if (size >= 8) return value;
+    const unsigned bits = size * 8;
+    const uint64_t sign = UINT64_C(1) << (bits - 1);
+    return (value ^ sign) - sign;
+}
+
+static uint64_t
+lvxAtomicCompute(LvxAtomicOp op, uint64_t old, uint64_t operand, unsigned size)
+{
+    switch (op) {
+      case LvxAtomicOp::Add:  return old + operand;
+      case LvxAtomicOp::And:  return old & operand;
+      case LvxAtomicOp::Ior:  return old | operand;
+      case LvxAtomicOp::Eor:  return old ^ operand;
+      case LvxAtomicOp::Swap: return operand;
+      case LvxAtomicOp::MinU: return old < operand ? old : operand;
+      case LvxAtomicOp::MaxU: return old > operand ? old : operand;
+      case LvxAtomicOp::Min: {
+        int64_t a = (int64_t)lvxSignExtend(old, size);
+        int64_t b = (int64_t)lvxSignExtend(operand, size);
+        return (uint64_t)(a < b ? a : b);
+      }
+      case LvxAtomicOp::Max: {
+        int64_t a = (int64_t)lvxSignExtend(old, size);
+        int64_t b = (int64_t)lvxSignExtend(operand, size);
+        return (uint64_t)(a > b ? a : b);
+      }
+      case LvxAtomicOp::Dus:
+        // Decrement Unsigned Saturating: subtract, and clamp at zero rather than
+        // wrapping.  Both the LVX description ("Decrement Unsigned Saturating")
+        // and KVX's helpers_core.h ("Atomic Decrement Unsigned Saturating") name
+        // it that way; neither states the arithmetic, and the KVX tree here only
+        // classifies the access (MEMORY_ACCESS_U_ATOMIC_DUS) -- the computation
+        // lives in a memory subsystem that checkout does not carry.  This is the
+        // reading both names admit.
+        return old >= operand ? old - operand : 0;
+    }
+    panic("LVX: unknown atomic operation");
+}
+
+static int256_t
+lvxAtomicRmw(void *self, LvxAtomicOp op, uint64_t addr, int256_t byteMask,
+             uint64_t operand)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    if (size > 8)
+        panic("LVX: %u-byte atomic read-modify-write is wider than the operation",
+              size);
+
+    int256_t old = int256_zero;
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.readBlob((Addr)addr, old.bytes, size);
+
+    int256_t result =
+        int256_fromUInt64(lvxAtomicCompute(op, int256_toUInt64(old), operand, size));
+    proxy.writeBlob((Addr)addr, result.bytes, size);
+    return old;
+}
+
+// The operand's declared width is the description's, not a choice made here:
+// Helper.yml gives the nine arithmetic forms `arguments: [64, 256, 64, 64, 8]`
+// and swap [64, 256, 64, 256, 8], so swap alone takes a container.  Matching the
+// generated prototype exactly is what makes the two agree at link time.
+#define LVX_ATOMIC_RMW(name, op)                                              \
+int256_t                                                                      \
+Behavior_MEM_atomic_##name(void *self, uint64_t addr, int256_t byteMask,      \
+                           uint64_t /*modifier*/, uint64_t operand,           \
+                           uint8_t /*dri*/)                                   \
+{                                                                             \
+    return lvxAtomicRmw(self, LvxAtomicOp::op, addr, byteMask, operand);      \
+}
+
+LVX_ATOMIC_RMW(add,  Add)
+LVX_ATOMIC_RMW(and,  And)
+LVX_ATOMIC_RMW(ior,  Ior)
+LVX_ATOMIC_RMW(eor,  Eor)
+LVX_ATOMIC_RMW(min,  Min)
+LVX_ATOMIC_RMW(max,  Max)
+LVX_ATOMIC_RMW(minu, MinU)
+LVX_ATOMIC_RMW(maxu, MaxU)
+LVX_ATOMIC_RMW(dus,  Dus)
+#undef LVX_ATOMIC_RMW
+
+int256_t
+Behavior_MEM_atomic_swap(void *self, uint64_t addr, int256_t byteMask,
+                         uint64_t /*modifier*/, int256_t value, uint8_t /*dri*/)
+{
+    return lvxAtomicRmw(self, LvxAtomicOp::Swap, addr, byteMask,
+                        int256_toUInt64(value));
+}
+
+// The plain atomic load and store.  They differ from MEM_load/MEM_store only in
+// bypassing the cache hierarchy, which an SE-mode functional proxy does anyway,
+// so what they add here is that the AL*/AS* family can run at all.
+int256_t
+Behavior_MEM_atomic_load(void *self, uint64_t addr, int256_t byteMask,
+                         uint64_t /*modifier*/, uint8_t /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    int256_t result = int256_zero;
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.readBlob((Addr)addr, result.bytes, size);
+    return result;
+}
+
+void
+Behavior_MEM_atomic_store(void *self, uint64_t addr, int256_t byteMask,
+                          uint64_t /*modifier*/, uint64_t value,
+                          uint8_t /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    int256_t stored = int256_fromUInt64(value);
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.writeBlob((Addr)addr, stored.bytes, size);
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t /*modifier*/, uint8_t /*dri*/)

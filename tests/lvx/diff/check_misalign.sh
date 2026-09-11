@@ -15,12 +15,10 @@
 #                     test that only looked for the trap would pass with every
 #                     atomic rejected.
 #
-#                     CAS, not ald/asd, because MEM_atomic_cas is the only
-#                     atomic the shim implements -- MEM_atomic_load and
-#                     MEM_atomic_store are still lvx_behavior_unimpl() panic
-#                     stubs, so ald/asd cannot run here at all.  That is a
-#                     separate gap; the alignment check itself is size-driven
-#                     and covers all of them.
+#                     CAS rather than ald/asd for a reason that has since gone
+#                     away -- MEM_atomic_cas was once the only atomic the shim
+#                     implemented -- and kept because it exercises a different
+#                     instruction family than atomics.s does.
 #   misalign_trap.s   an 8-byte atomic store one past an 8-aligned address.
 #                     Must panic; reaching the exit is the failure.
 #
@@ -94,10 +92,9 @@ fi
 # A test whose expectation cannot fail is worth nothing: make the trap program's
 # address aligned and require the trap to stop being reported.
 #
-# It does NOT then run to completion -- asd's MEM_atomic_store is still a panic
-# stub, so gem5 dies either way.  What this pins is which death: the alignment
-# check must not be the one talking.  It becomes a stronger control the day
-# MEM_atomic_store is implemented.
+# It now runs to completion too, so this asserts both halves -- no DMIS, and the
+# store actually happened.  It used to be able to check only the first, because
+# asd's MEM_atomic_store was a panic stub and gem5 died either way.
 sed 's/addd \$r2 = \$r2, 1/addd $r2 = $r2, 0/' \
     "$here/misalign_trap.s" > "$work/misalign_neg.s"
 cmp -s "$here/misalign_trap.s" "$work/misalign_neg.s" &&
@@ -108,8 +105,10 @@ cmp -s "$here/misalign_trap.s" "$work/misalign_neg.s" &&
 out="$(timeout 120 "$GEM5" --outdir="$work/m5-neg" "$RUNCFG" "$work/misalign_neg.elf" 2>&1)"
 if printf '%s' "$out" | grep -q 'misaligned atomic access to 0x'; then
     echo "negative-ctrl      FAIL (an ALIGNED address was reported misaligned)"; rc=1
+elif ! printf '%s' "$out" | grep -q 'exited (code='; then
+    echo "negative-ctrl      FAIL (no DMIS, but the store did not complete either)"; rc=1
 else
-    echo "negative-ctrl      PASS (the same store at an aligned address raises no DMIS)"
+    echo "negative-ctrl      PASS (the same store at an aligned address completes)"
 fi
 
 exit $rc

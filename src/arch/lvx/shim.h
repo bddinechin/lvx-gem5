@@ -55,6 +55,28 @@ void Behavior_commitRegFiles(void *);
 int256_t Behavior_MEM_load (void *, uint64_t, int256_t, uint8_t, uint8_t);
 void    Behavior_MEM_store(void *, uint64_t, int256_t, uint8_t, int256_t, uint8_t);
 
+/* The atomic read-modify-write family, the AL and AS instructions.  opnd1 = address, opnd2 =
+ * byte-mask (encodes the access size), opnd3 = modifier/coherency, opnd4 = the
+ * operand, last = destination-register info (unused functionally).  Each returns
+ * the PREVIOUS memory contents, which is what the AL* forms write back to their
+ * register and the AS* forms discard. */
+int256_t Behavior_MEM_atomic_add (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_and (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_ior (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_eor (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_min (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_max (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_minu(void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_maxu(void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+int256_t Behavior_MEM_atomic_dus (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+/* swap alone takes a container: Helper.yml declares it [64, 256, 64, 256, 8]. */
+int256_t Behavior_MEM_atomic_swap(void *, uint64_t, int256_t, uint64_t, int256_t, uint8_t);
+
+/* Atomic load and store, which bypass the cache hierarchy on hardware and are
+ * plain accesses through the SE-mode proxy here. */
+int256_t Behavior_MEM_atomic_load (void *, uint64_t, int256_t, uint64_t, uint8_t);
+void    Behavior_MEM_atomic_store(void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
+
 /* Data-misalignment trap (HTO_DMIS), thrown by the atomics when the effective
  * address is not a multiple of the access size.  opnd1 = that address,
  * opnd2 = the size it must be a multiple of -- passed in because a

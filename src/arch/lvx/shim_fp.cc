@@ -395,4 +395,51 @@ INT_TO_FP(i, 64, 32, int64_t)   INT_TO_FP(ui, 64, 32, uint64_t)
 FP_WIDEN(16, 32)   FP_NARROW(32, 16)
 FP_WIDEN(32, 64)   FP_NARROW(64, 32)
 
+// f16 <-> 16-bit integer (FIXEDHO/FLOATHO).  Berkeley SoftFloat has no 16-bit
+// integer target, so route through i32 and clamp to the i16 range -- saturating
+// the RISC-V way, exactly as f32_to_i32 does at its own width: IO on a NaN, an
+// infinity, or a finite value that rounds outside the destination range; IN
+// when the rounding to integer was inexact.  Every finite f16 (max 65504) fits
+// i32, so only the clamp to 16 bits can add saturation over what SoftFloat's
+// own i32 conversion already flags.
+Tuple_16_1_1
+Behavior_f16_to_i16(void * /*self*/, uint8_t rm, uint16_t a)
+{
+    softfloat_exceptionFlags = 0;
+    int_fast32_t r = f16_to_i32(fp16(a), sfRoundingMode(rm), true);
+    uint8_t io = flagIO(), in = flagIN();
+    if      (r >  32767) { r =  32767; io = 1; }
+    else if (r < -32768) { r = -32768; io = 1; }
+    return Tuple_16_1_1{ (uint16_t)(int16_t)r, io, in };
+}
+
+Tuple_16_1_1
+Behavior_f16_to_ui16(void * /*self*/, uint8_t rm, uint16_t a)
+{
+    softfloat_exceptionFlags = 0;
+    uint_fast32_t r = f16_to_ui32(fp16(a), sfRoundingMode(rm), true);
+    uint8_t io = flagIO(), in = flagIN();
+    if (r > 65535) { r = 65535; io = 1; }
+    return Tuple_16_1_1{ (uint16_t)r, io, in };
+}
+
+// integer -> f16: never invalid; rounds per rm and sets IN when the 16-bit
+// value has more significant bits than f16's 11, so i32_to_f16 is exact for the
+// sign/zero-extended operand.
+Tuple_16_1_1
+Behavior_i16_to_f16(void * /*self*/, uint8_t rm, uint16_t a)
+{
+    sfBegin(rm);
+    float16_t r = i32_to_f16((int32_t)(int16_t)a);
+    return Tuple_16_1_1{ r.v, flagIO(), flagIN() };
+}
+
+Tuple_16_1_1
+Behavior_ui16_to_f16(void * /*self*/, uint8_t rm, uint16_t a)
+{
+    sfBegin(rm);
+    float16_t r = ui32_to_f16((uint32_t)a);
+    return Tuple_16_1_1{ r.v, flagIO(), flagIN() };
+}
+
 }  // extern "C"

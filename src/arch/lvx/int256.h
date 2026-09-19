@@ -391,6 +391,77 @@ int256_splat(int256_t val, unsigned width)
     return out;
 }
 
+/* --- bit-range moves, for the lane shuffles below: `n` <= 64 bits at `pos`,
+ *     which may straddle a dword boundary; pos + n <= 256 --- */
+static inline uint64_t
+int256_extract_(int256_t val, unsigned pos, unsigned n)
+{
+    unsigned i = pos / 64, b = pos % 64;
+    uint64_t v = val.dwords[i] >> b;
+    if (b && i + 1 < 4) v |= val.dwords[i + 1] << (64 - b);
+    return n < 64 ? v & ((1ULL << n) - 1) : v;
+}
+static inline int256_t
+int256_insert_(int256_t val, unsigned pos, uint64_t v, unsigned n)
+{
+    unsigned i = pos / 64, b = pos % 64;
+    uint64_t mask = n < 64 ? ((1ULL << n) - 1) : ~0ULL;
+    v &= mask;
+    val.dwords[i] = (val.dwords[i] & ~(mask << b)) | (v << b);
+    if (b && b + n > 64 && i + 1 < 4)
+        val.dwords[i + 1] = (val.dwords[i + 1] & ~(mask >> (64 - b))) | (v >> (64 - b));
+    return val;
+}
+/* copy `n` bits from src at spos to dst at dpos, in 64-bit pieces */
+static inline int256_t
+int256_bitcopy_(int256_t dst, unsigned dpos, int256_t src, unsigned spos, unsigned n)
+{
+    while (n) {
+        unsigned k = n < 64 ? n : 64;
+        dst = int256_insert_(dst, dpos, int256_extract_(src, spos, k), k);
+        dpos += k; spos += k; n -= k;
+    }
+    return dst;
+}
+
+/* --- lane shuffles (Behavior EVEN/ODD/ZIP): lanes of `width` bits, lane 0 low.
+ *     EVEN packs lanes 0, 2, 4, ... into lanes 0, 1, 2, ...; ODD packs 1, 3, 5, ...;
+ *     ZIP interleaves, lane 2j from a and lane 2j+1 from b.  Defined on
+ *     non-negative values only (Width.pm reports lane-signed otherwise), so the
+ *     container is a plain bit pattern here -- bit 255 is data, not a sign: a ZIP
+ *     of two 128-bit values fills all 256 bits -- and whatever lands above the
+ *     last lane copied is zero, as it is in the unbounded value.  A lane that
+ *     straddles the end of the container is copied as far as it goes. --- */
+static inline int256_t
+int256_unzip_(int256_t val, unsigned width, unsigned first)
+{
+    assert(width > 0 && width <= 128);
+    int256_t out = int256_zero;
+    for (unsigned j = 0, spos = first; spos < 256; j++, spos += 2 * width) {
+        unsigned n = 256 - spos < width ? 256 - spos : width;
+        out = int256_bitcopy_(out, j * width, val, spos, n);
+    }
+    return out;
+}
+static inline int256_t int256_even(int256_t val, unsigned width) { return int256_unzip_(val, width, 0); }
+static inline int256_t int256_odd (int256_t val, unsigned width) { return int256_unzip_(val, width, width); }
+static inline int256_t
+int256_zip(int256_t a, int256_t b, unsigned width)
+{
+    assert(width > 0 && width <= 128);
+    int256_t out = int256_zero;
+    for (unsigned j = 0, dpos = 0; dpos < 256; j++) {
+        unsigned n = 256 - dpos < width ? 256 - dpos : width;
+        out = int256_bitcopy_(out, dpos, a, j * width, n);
+        dpos += n;
+        if (dpos >= 256) break;
+        n = 256 - dpos < width ? 256 - dpos : width;
+        out = int256_bitcopy_(out, dpos, b, j * width, n);
+        dpos += n;
+    }
+    return out;
+}
+
 /* --- compares: signed / unsigned over full 256-bit -> {-1,0,1} --- */
 static inline int
 int256_cmp(int256_t a, int256_t b)

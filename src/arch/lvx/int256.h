@@ -377,6 +377,20 @@ int256_swap(int256_t val, unsigned slice)
     return val;
 }
 
+/* --- splat: the low `width` bits of val, repeated to fill all 256 bits (the
+ *     Behavior SPLAT.w; a coercion above it cuts the result to the width wanted).
+ *     Doubling: after the zx the pattern fills [0,w); each step copies what is
+ *     filled so far up by its own length, so [0,s) becomes [0,2s). --- */
+static inline int256_t
+int256_splat(int256_t val, unsigned width)
+{
+    assert(width > 0 && width <= 256);
+    int256_t out = int256_zx(val, width);
+    for (unsigned s = width; s < 256; s *= 2)
+        out = int256_or(out, int256_shl_(out, s));
+    return out;
+}
+
 /* --- compares: signed / unsigned over full 256-bit -> {-1,0,1} --- */
 static inline int
 int256_cmp(int256_t a, int256_t b)

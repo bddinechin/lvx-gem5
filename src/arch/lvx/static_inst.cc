@@ -258,10 +258,12 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     // One context per sub-instruction so all source reads (fetch) happen before
     // any register write (commit) — VLIW parallel semantics.
     BundlePredication predication;
+    BundleWriteLog writeLog;
     BehaviorContext ctx[MaxBundleSyllables];
     for (unsigned i = 0; i < numSubInsts; i++) {
         ctx[i].reset(tc, base + subInsts[i].byteOffset, fallThrough);
         ctx[i].predication = &predication;
+        ctx[i].writeLog = &writeLog;
     }
 
     // A syllable is suppressed when a GUARD in this bundle evaluated false and

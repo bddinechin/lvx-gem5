@@ -56,6 +56,40 @@ writeGpr(ThreadContext *tc, int id, uint64_t val)
     tc->setReg(intRegClass[id], val);
 }
 
+// Commit one syllable's write of GPR ID within a bundle, under the rule of
+// BundleWriteLog (shim.hh): a write of the register's pre-bundle value is a
+// SELECT that kept the old value and does not count; the one real write wins
+// whatever the syllable order; two real writes of different values panic.
+static void
+commitGpr(BehaviorContext *ctx, int id, uint64_t val)
+{
+    BundleWriteLog *log = ctx->writeLog;
+    if (!log) {
+        writeGpr(ctx->tc, id, val);
+        return;
+    }
+    for (unsigned i = 0; i < log->count; i++) {
+        BundleWriteLog::Entry &e = log->entries[i];
+        if (e.reg != id)
+            continue;
+        if (val == e.old)
+            return;                      // no-op write: never overrides
+        if (e.value != e.old && e.value != val)
+            panic("LVX bundle at %#x: two syllables write $r%d with different "
+                  "values %#x and %#x", ctx->instPC, id, e.value, val);
+        e.value = val;
+        writeGpr(ctx->tc, id, val);
+        return;
+    }
+    if (log->count < BundleWriteLog::MaxEntries) {
+        BundleWriteLog::Entry &e = log->entries[log->count++];
+        e.reg = id;
+        e.old = readGpr(ctx->tc, id);
+        e.value = val;
+    }
+    writeGpr(ctx->tc, id, val);
+}
+
 static inline uint64_t
 readSfr(ThreadContext *tc, unsigned idx)
 {
@@ -506,7 +540,7 @@ Behavior_operandToRegFile_GPR(void *self, unsigned /*stage*/, int /*rank*/,
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     if (!(ctx->operands[opnd_idx].flags & AccessWrite))
         return; // not written by execute: nothing to commit
-    writeGpr(ctx->tc, register_id, ctx->operands[opnd_idx].value.dwords[0]);
+    commitGpr(ctx, register_id, ctx->operands[opnd_idx].value.dwords[0]);
 }
 
 void
@@ -517,8 +551,8 @@ Behavior_operandToRegFile_PGR(void *self, unsigned /*stage*/, int /*rank*/,
     if (!(ctx->operands[opnd_idx].flags & AccessWrite))
         return;
     register_id *= 2;
-    writeGpr(ctx->tc, register_id + 0, ctx->operands[opnd_idx].value.dwords[0]);
-    writeGpr(ctx->tc, register_id + 1, ctx->operands[opnd_idx].value.dwords[1]);
+    commitGpr(ctx, register_id + 0, ctx->operands[opnd_idx].value.dwords[0]);
+    commitGpr(ctx, register_id + 1, ctx->operands[opnd_idx].value.dwords[1]);
 }
 
 void
@@ -530,7 +564,7 @@ Behavior_operandToRegFile_QGR(void *self, unsigned /*stage*/, int /*rank*/,
         return;
     register_id *= 4;
     for (int i = 0; i < 4; i++)
-        writeGpr(ctx->tc, register_id + i, ctx->operands[opnd_idx].value.dwords[i]);
+        commitGpr(ctx, register_id + i, ctx->operands[opnd_idx].value.dwords[i]);
 }
 
 void

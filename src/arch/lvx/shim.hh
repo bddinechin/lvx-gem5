@@ -72,12 +72,45 @@ struct BundlePredication
     void reset() { active = false; predicate = false; exuMask = 0; }
 };
 
+// Register writes within a bundle.
+//
+// A bundle may carry two syllables that write the same register under
+// disjoint predicates -- the if-converted diamond `cmoved.weqz $r3? $r5 = $r63`
+// / `cmoved.wnez $r3? $r5 = $r62`, which the compiler emits and the KVX
+// allows.  The description spells a conditional move as an unconditional
+// SELECT of the new or the old value (a real read of the destination, so the
+// tied operand is an ACCESS -- lvx-mds ac8c58e), so the syllable whose
+// predicate is false still commits: it writes the register's own pre-bundle
+// value back.  Committing in syllable order would then let that no-op write
+// land after the real one and undo it.
+//
+// This log, shared by the syllables of one bundle like BundlePredication,
+// applies the architectural rule at commit: at most one syllable effectively
+// writes a register per bundle.  A write of the pre-bundle value is not a
+// write and never overrides another; two writes of different new values are
+// an illegal bundle and panic, since nothing can order them.
+struct BundleWriteLog
+{
+    static constexpr unsigned MaxEntries = 32;
+    struct Entry
+    {
+        int reg;         // GPR number
+        uint64_t old;    // its value before the bundle
+        uint64_t value;  // what has been committed so far
+    };
+    Entry entries[MaxEntries];
+    unsigned count = 0;
+
+    void reset() { count = 0; }
+};
+
 struct BehaviorContext
 {
     ThreadContext *tc = nullptr;
 
     // Shared with the other syllables of the bundle; owned by the caller.
     BundlePredication *predication = nullptr;
+    BundleWriteLog *writeLog = nullptr;   // null outside a bundle: plain writes
 
     // PC of this instruction (bundle base + this syllable's offset). Read by
     // readFromStorage_PC and used as the fall-through base for nextPC.

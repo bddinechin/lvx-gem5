@@ -1539,6 +1539,92 @@ Behavior_intcomp_32(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
     return lvxIntcomp(code, (int32_t)a, (int32_t)b, (uint32_t)a, (uint32_t)b);
 }
 
+bool
+Behavior_intcomp_16(void * /*self*/, uint8_t code, uint16_t a, uint16_t b)
+{
+    return lvxIntcomp(code, (int16_t)a, (int16_t)b, a, b);
+}
+
+bool
+Behavior_intcomp_8(void * /*self*/, uint8_t code, uint8_t a, uint8_t b)
+{
+    return lvxIntcomp(code, (int8_t)a, (int8_t)b, a, b);
+}
+
+// The 128-bit compare (COMPQ): the operands arrive as int256_t holding the
+// quad word in their low 128 bits, sign- or zero-extended per int256_sx/zx of
+// the behavior; the full-width compares give the right answer for both.
+bool
+Behavior_intcomp_128(void * /*self*/, uint8_t code, int256_t a, int256_t b)
+{
+    int s = int256_cmp(a, b), u = int256_cmpu(a, b);
+    switch (code) {
+      case  0: return s <  0;                          // LT
+      case  1: return s >= 0;                          // GE
+      case  2: return u <  0;                          // LTU
+      case  3: return u >= 0;                          // GEU
+      case  4: return s == 0;                          // EQ
+      case  5: return s != 0;                          // NE
+      case  6: return int256_cmpu(int256_and(a, b), int256_zero) != 0; // ANY
+      case  7: return int256_cmpu(int256_and(a, b), int256_zero) == 0; // NONE
+      case  8: return s <= 0;                          // LE
+      case  9: return s >  0;                          // GT
+      case 10: return u <= 0;                          // LEU
+      case 11: return u >  0;                          // GTU
+      default: panic("LVX: unknown intcomp code %d", code);
+    }
+}
+
+// The per-lane condition of the LANES* selects (Modifier.yml `lanecond`):
+// a test of one lane against zero, the same eight tests as bcucond's D*
+// group, at the lane's width.
+static inline bool
+lvxLanecond(int code, int64_t v)
+{
+    switch (code) {
+      case 0: return v <  0;          // LTZ
+      case 1: return v >= 0;          // GEZ
+      case 2: return v <= 0;          // LEZ
+      case 3: return v >  0;          // GTZ
+      case 4: return v == 0;          // EQZ
+      case 5: return v != 0;          // NEZ
+      case 6: return (v & 1) != 0;    // ODD
+      case 7: return (v & 1) == 0;    // EVEN
+      default: panic("LVX: unknown lanecond code %d", code);
+    }
+}
+
+bool
+Behavior_lanecond_8(void * /*self*/, uint8_t code, uint8_t lane)
+{
+    return lvxLanecond(code, (int8_t)lane);
+}
+
+bool
+Behavior_lanecond_16(void * /*self*/, uint8_t code, uint16_t lane)
+{
+    return lvxLanecond(code, (int16_t)lane);
+}
+
+bool
+Behavior_lanecond_32(void * /*self*/, uint8_t code, uint32_t lane)
+{
+    return lvxLanecond(code, (int32_t)lane);
+}
+
+bool
+Behavior_lanecond_64(void * /*self*/, uint8_t code, uint64_t lane)
+{
+    return lvxLanecond(code, (int64_t)lane);
+}
+
+// DTOUCHL, the cache-line prefetch: a hint with no architectural effect, and
+// nothing to do for a simulator without caches in the loop.
+void
+Behavior_MEM_dtouchl(void * /*self*/, uint64_t /*address*/)
+{
+}
+
 // CCB fused compare-and-branch (Modifier.yml `ccbcomp`): a single 4-bit field
 // packs both the relation (same LT/GE/LTU/GEU/EQ/NE/ANY/NONE order as
 // intcomp's first 8 codes) and the operand width (codes 0-7 = double/64-bit,

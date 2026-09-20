@@ -1446,9 +1446,8 @@ Behavior_guard(void *self, uint8_t bcucond, uint64_t argument, uint8_t activate)
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     if (!ctx->predication)
         return;   // standalone instruction, no bundle to predicate
-    ctx->predication->active = true;
-    ctx->predication->predicate = Behavior_bcucond(self, bcucond, argument);
-    ctx->predication->exuMask = activate;
+    if (!Behavior_bcucond(self, bcucond, argument))
+        ctx->predication->suppressMask |= activate;
 }
 
 // SRHPC is a privilege-level saved-PC register updated on return; it has no

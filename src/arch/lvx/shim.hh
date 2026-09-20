@@ -59,17 +59,22 @@ struct OperandSlot
 // of the execution units that predicate guards, numbered from the first unit
 // after the two BCUs, so bit 0 is ALU0, bit 1 is ALU1, and so on.  The
 // assembler builds exactly this mask -- gas tc-lvx.c computes
-// `1 << (target_exu - LVX_EXU_ALU0)` for the instruction being predicated.
+// `1 << (target_exu - LVX_EXU_ALU0)` for the instruction being predicated,
+// and ORs the bits of every syllable guarded on the same condition into one
+// GUARD (lvx_cond_insn_merge).
 //
-// One of these is shared by every syllable of a bundle, since GUARD executes
-// in one slot and controls others.
+// A bundle holds up to two GUARDs, one per BCU slot, on different conditions:
+// the compiler schedules a then-side and an else-side instruction together
+// and gas puts their guards in BCU0 and BCU1.  So what a bundle keeps is not
+// the last predicate seen but the union of the units every false GUARD named;
+// a true GUARD contributes nothing.  Each GUARD names its own units, so the
+// two masks never overlap and the union is exact.  Until 2026-09-20 this held
+// one predicate and one mask, and the second GUARD overwrote the first.
 struct BundlePredication
 {
-    bool active = false;      // a GUARD executed in this bundle
-    bool predicate = false;   // the condition it evaluated
-    unsigned exuMask = 0;     // guarded units, bit b == ALU0 + b
+    unsigned suppressMask = 0;   // units whose GUARD was false, bit b == ALU0 + b
 
-    void reset() { active = false; predicate = false; exuMask = 0; }
+    void reset() { suppressMask = 0; }
 };
 
 // Register writes within a bundle.

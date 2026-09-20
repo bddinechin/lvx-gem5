@@ -267,14 +267,13 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     }
 
     // A syllable is suppressed when a GUARD in this bundle evaluated false and
-    // named that syllable's unit.  Mask bit 0 is ALU0, the first unit after the
-    // two BCUs, matching what the assembler encodes.  The BCU slots themselves
-    // are never guarded -- GUARD lives in one.
+    // named that syllable's unit (either GUARD: the bundle keeps the union).
+    // Mask bit 0 is ALU0, the first unit after the two BCUs, matching what the
+    // assembler encodes.  The BCU slots themselves are never guarded -- GUARD
+    // lives in one.
     auto suppressed = [&](unsigned exu) {
-        if (!predication.active || predication.predicate)
-            return false;
         int bit = (int)exu - (int)EXU_ALU0;
-        return bit >= 0 && bit < 8 && ((predication.exuMask >> bit) & 1u) != 0;
+        return bit >= 0 && bit < 8 && ((predication.suppressMask >> bit) & 1u) != 0;
     };
     auto isBcu = [](unsigned exu) { return exu == EXU_BCU0 || exu == EXU_BCU1; };
 

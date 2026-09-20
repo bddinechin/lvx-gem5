@@ -15,11 +15,15 @@
 # core built; the copied gem5-lvx1.opt / gem5-lvx2.opt are the deliverables.
 #
 # Usage:  ./build-cores.sh [core ...]      (default: lvx_v1 lvx_v2)
+#         JOBS=4 ./build-cores.sh          (default: half the CPUs)
+#
+# JOBS caps scons's parallelism.  A full -j$(nproc) gem5 build (16 C++ jobs
+# of a few GB each) has taken the machine down, so the default is half.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 be="$here/../lvx-mds/build_lvx/BE/GEM5"
-jobs="$(nproc)"
+jobs="${JOBS:-$(( $(nproc) / 2 ))}"
 if [ $# -eq 0 ]; then cores=(lvx_v1 lvx_v2); else cores=("$@"); fi
 
 [ -d "$be" ] || { echo "error: BE/GEM5 build dir not found: $be" >&2

@@ -45,7 +45,17 @@ Process::initState()
 
     // Reserve a page of stack so the first frame's prologue has backing memory,
     // then start the thread at the ELF entry with SP at the stack top.
-    Addr sp = roundDown(memState->getStackBase() - PageBytes, 16);
+    //
+    // 32 bytes, not 16: the ABI's stack boundary is 256 bits (lvx.h's
+    // STACK_BOUNDARY, and BIGGEST_ALIGNMENT with it), and a compiler is
+    // entitled to believe it -- an alloca declared "align 32" is placed at a
+    // fixed offset from $r12 and its address computed with a bitwise or
+    // rather than an add. At 16 the stack top came out 16 mod 32, and such
+    // an or then quietly returned the wrong address: a 256-bit vector
+    // written lane by lane landed on two lanes instead of four, and every
+    // program that did so read back its low half twice. Nothing diagnoses
+    // it; the value is just wrong.
+    Addr sp = roundDown(memState->getStackBase() - PageBytes, 32);
     memState->setStackMin(sp);
     allocateMem(roundDown(sp, PageBytes), PageBytes);
 

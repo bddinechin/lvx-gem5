@@ -1048,18 +1048,70 @@ Behavior_MEM_atomic_store(void *self, uint64_t addr, int256_t byteMask,
     proxy.writeBlob((Addr)addr, stored.bytes, size);
 }
 
+// The byte mask of an ordinary access is a contiguous run of low bits: the
+// size, which is all it ever was before MASKM.  `popcount` is that size, and
+// agrees with lvxAccessSize on every such value.
+static inline bool
+lvxLowRun(uint64_t mask)
+{
+    return mask != 0 && ((mask + 1) & mask) == 0;
+}
+
+// Decompose MASK into its runs of set bits, in ascending byte order.  A
+// masked access transfers only the bytes its mask enables -- the point of
+// masking a loop tail is that the disabled bytes are never touched, so they
+// cannot fault -- and the disabled bytes of a load's destination stay zero,
+// which is what "cleared" means for a register destination (lvx-mds/docs/
+// Lane-masking-design.md §1.6).  A 64-bit mask has at most 32 runs.
+#define LVX_MAX_BYTE_RUNS 32
+struct LvxByteRun { unsigned start; unsigned length; };
+
+static unsigned
+lvxByteRuns(uint64_t mask, struct LvxByteRun *runs)
+{
+    unsigned count = 0, byte = 0;
+    while (mask && count < LVX_MAX_BYTE_RUNS) {
+        if (!(mask & 1u)) {
+            unsigned skip = __builtin_ctzll(mask);
+            mask >>= skip;
+            byte += skip;
+            continue;
+        }
+        // Ones until the next zero.  ~mask is zero when every remaining bit
+        // is set, and __builtin_ctzll(0) is undefined, so say 64.
+        uint64_t inverse = ~mask;
+        unsigned run = inverse ? __builtin_ctzll(inverse) : 64;
+        runs[count].start = byte;
+        runs[count].length = run;
+        count++;
+        if (run >= 64)
+            break;
+        mask >>= run;
+        byte += run;
+    }
+    return count;
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t /*modifier*/, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
-    unsigned size = lvxAccessSize(byteMask.words[0]);
+    uint64_t mask = byteMask.words[0];
     int256_t result = int256_zero;
     // Functional SE-mode read (AtomicSimpleCPU). TODO: route through the CPU
     // memory system (ExecContext::readMem) for timing models.
     SETranslatingPortProxy proxy(ctx->tc);
-    proxy.readBlob(address, result.bytes, size);
+    if (lvxLowRun(mask)) {
+        proxy.readBlob(address, result.bytes, __builtin_popcountll(mask));
+        return result;
+    }
+    struct LvxByteRun runs[LVX_MAX_BYTE_RUNS];
+    unsigned count = lvxByteRuns(mask, runs);
+    for (unsigned i = 0; i < count; i++)
+        proxy.readBlob(address + runs[i].start, result.bytes + runs[i].start,
+                       runs[i].length);
     return result;
 }
 
@@ -1069,9 +1121,17 @@ Behavior_MEM_store(void *self, uint64_t addr, int256_t byteMask,
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
-    unsigned size = lvxAccessSize(byteMask.words[0]);
+    uint64_t mask = byteMask.words[0];
     SETranslatingPortProxy proxy(ctx->tc);
-    proxy.writeBlob(address, value.bytes, size);
+    if (lvxLowRun(mask)) {
+        proxy.writeBlob(address, value.bytes, __builtin_popcountll(mask));
+        return;
+    }
+    struct LvxByteRun runs[LVX_MAX_BYTE_RUNS];
+    unsigned count = lvxByteRuns(mask, runs);
+    for (unsigned i = 0; i < count; i++)
+        proxy.writeBlob(address + runs[i].start, value.bytes + runs[i].start,
+                        runs[i].length);
 }
 
 // Data-misalignment trap (HTO_DMIS in the ownership model, "Data MISalign
@@ -1448,6 +1508,73 @@ Behavior_guard(void *self, uint8_t bcucond, uint64_t argument, uint8_t activate)
         return;   // standalone instruction, no bundle to predicate
     if (!Behavior_bcucond(self, bcucond, argument))
         ctx->predication->suppressMask |= activate;
+}
+
+// Masked execution prefixes.
+//
+// MASKS and MASKM sit in a BCU slot and name, in ACTIVATE, the units of this
+// bundle whose lanes (MASKS) or bytes (MASKM) are enabled by the register they
+// read.  Like GUARD they only record: the units themselves apply it when they
+// commit, because what a mask bit MEANS depends on the instruction -- one lane
+// of `faddwq` is four bytes, one lane of `addbx` is one, and one bit of a
+// masked `lq` is one byte (lvx-mds/docs/Lane-masking-design.md §1.4).
+//
+// LANETODO is the modifier: bit 0 is the polarity (.mf/.mfd complement the
+// mask), bit 1 distributes successive slices across the activated units in
+// ascending order, for the two halves of a composite.  Applying the polarity
+// here means a consumer never has to.
+static void
+recordMask(void *self, uint8_t lanetodo, uint64_t argument, uint8_t activate)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!ctx->predication)
+        return;   // standalone instruction, no bundle to mask
+    bool complement = (lanetodo & 0x1) != 0;
+    bool distribute = (lanetodo & 0x2) != 0;
+    uint64_t enables = complement ? ~argument : argument;
+    unsigned index = 0;
+    for (unsigned bit = 0; bit < BundlePredication::MaxUnits; bit++) {
+        if (!((activate >> bit) & 1u))
+            continue;
+        ctx->predication->masked[bit] = true;
+        ctx->predication->enables[bit] = enables;
+        ctx->predication->slice[bit] = distribute ? index : 0;
+        index++;
+    }
+}
+
+void
+Behavior_masks(void *self, uint8_t lanetodo, uint64_t argument, uint8_t activate)
+{
+    recordMask(self, lanetodo, argument, activate);
+}
+
+void
+Behavior_maskm(void *self, uint8_t lanetodo, uint64_t argument, uint8_t activate)
+{
+    recordMask(self, lanetodo, argument, activate);
+}
+
+// The byte enables this access must apply: what a MASKM of this bundle named
+// for this unit, or all ones when there is none -- which is every access in a
+// bundle without a MASKM, so this is the answer the whole ISA gave before
+// masking existed and the reason adding the call changed nothing.
+//
+// The result is ANDed by the instruction with the constant for its own size
+// (`MEM.load(address, 0xFFFF & bytemask, ...)`), so returning more bits than
+// the access has is harmless.
+//
+// MASKM has no composites -- a 512-bit access is one instruction, not two --
+// so `slice` is not consulted: .mtd/.mfd on a MASKM are reserved.
+uint32_t
+Behavior_maskbytes(void *self)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned bit = ctx->maskUnit;
+    if (!ctx->predication || bit >= BundlePredication::MaxUnits ||
+        !ctx->predication->masked[bit])
+        return ~uint32_t{0};
+    return (uint32_t)ctx->predication->enables[bit];
 }
 
 // SRHPC is a privilege-level saved-PC register updated on return; it has no

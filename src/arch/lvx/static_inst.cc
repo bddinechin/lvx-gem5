@@ -263,6 +263,8 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     for (unsigned i = 0; i < numSubInsts; i++) {
         ctx[i].reset(tc, base + subInsts[i].byteOffset, fallThrough);
         ctx[i].predication = &predication;
+        ctx[i].maskUnit = subInsts[i].exu >= EXU_ALU0
+                        ? subInsts[i].exu - EXU_ALU0 : ~0u;
         ctx[i].writeLog = &writeLog;
     }
 

@@ -74,7 +74,31 @@ struct BundlePredication
 {
     unsigned suppressMask = 0;   // units whose GUARD was false, bit b == ALU0 + b
 
-    void reset() { suppressMask = 0; }
+    // What a MASKS or MASKM of this bundle told each unit, in the same
+    // numbering as suppressMask.  A prefix names its units in `activate` and
+    // supplies one register of enables; the unit reads them back through
+    // maskbytes()/lanemask() when it commits, at ITS OWN granularity -- bytes
+    // for an access, lanes for an arithmetic instruction (lvx-mds/docs/
+    // Lane-masking-design.md §1.4).  So the enables are kept raw here, with
+    // the polarity of `lanetodo` already applied, and the consumer takes the
+    // part that is its own.
+    static constexpr unsigned MaxUnits = 8;   // `activate` is 8 bits wide
+    bool masked[MaxUnits] = {};      // a prefix of this bundle named this unit
+    uint64_t enables[MaxUnits] = {}; // its enables, already complemented for .mf
+    unsigned slice[MaxUnits] = {};   // under .mtd/.mfd, which slice is this
+                                     // unit's: its index among the activated
+                                     // units, ascending.  Zero otherwise.
+
+    void
+    reset()
+    {
+        suppressMask = 0;
+        for (unsigned i = 0; i < MaxUnits; i++) {
+            masked[i] = false;
+            enables[i] = 0;
+            slice[i] = 0;
+        }
+    }
 };
 
 // Register writes within a bundle.
@@ -116,6 +140,13 @@ struct BehaviorContext
     // Shared with the other syllables of the bundle; owned by the caller.
     BundlePredication *predication = nullptr;
     BundleWriteLog *writeLog = nullptr;   // null outside a bundle: plain writes
+
+    // This syllable's unit in the numbering `activate` uses -- 0 is ALU0, the
+    // first unit after the two BCUs -- or ~0u for a BCU slot, which no prefix
+    // can name.  GUARD needs the unit only in the driver, since suppression
+    // skips a whole syllable; a masked instruction asks for its OWN enables,
+    // so the helper it calls has to know who is asking.
+    unsigned maskUnit = ~0u;
 
     // PC of this instruction (bundle base + this syllable's offset). Read by
     // readFromStorage_PC and used as the fall-through base for nextPC.

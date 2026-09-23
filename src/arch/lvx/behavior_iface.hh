@@ -21,6 +21,8 @@ extern "C" {
 Opcode Decode_Decoding_simple(const void *buffer);
 Opcode Decode_Decoding_double(const void *buffer);
 Opcode Decode_Decoding_triple(const void *buffer);
+// RISC-V (RV64G, PS.RV mode) decode space -- one fixed 32-bit word, no bundle.
+Opcode Decode_Decoding_riscv(const void *buffer);
 
 // Dispatch table (from behavior.c): [opcode][phase], phase 0=fetch, 1=execute,
 // 2=commit. Entries for opcodes without a body are null.

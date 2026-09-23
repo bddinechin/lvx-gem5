@@ -65,6 +65,10 @@ enum : unsigned
     // ownership check passes; the check is still made (see shim.cc).
     PL_SHIFT = LVX_SFR_PS_PL_SHIFT,
     PL_WIDTH = LVX_SFR_PS_PL_WIDTH,
+
+    // PS.RV -- selects the RISC-V (RV64G) execution personality. When set, the
+    // core fetches/decodes fixed-32-bit RISC-V rather than VLIW bundles.
+    RV_BIT = LVX_SFR_PS_RV_SHIFT,
 };
 
 inline constexpr uint64_t SE_MODE_VALUE = (uint64_t{1} << HLE_BIT);

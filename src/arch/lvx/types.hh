@@ -40,11 +40,12 @@ struct ExtMachInst
 {
     uint32_t syllables[MaxBundleSyllables] = {};
     uint8_t  nsyll = 0;
+    bool     rv = false;   // fetched in RISC-V (PS.RV) mode: one fixed 32-bit word
 
     bool
     operator==(const ExtMachInst &o) const
     {
-        if (nsyll != o.nsyll)
+        if (nsyll != o.nsyll || rv != o.rv)
             return false;
         for (unsigned i = 0; i < nsyll; i++)
             if (syllables[i] != o.syllables[i])
@@ -68,7 +69,7 @@ struct hash<gem5::LvxISA::ExtMachInst>
     size_t
     operator()(const gem5::LvxISA::ExtMachInst &e) const
     {
-        size_t h = e.nsyll;
+        size_t h = e.nsyll ^ (e.rv ? 0x9e3779b9ULL : 0);
         for (unsigned i = 0; i < e.nsyll; i++)
             h = h * 0x100000001b3ULL ^ e.syllables[i];
         return h;

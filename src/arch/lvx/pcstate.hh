@@ -35,10 +35,15 @@ class PCState : public GenericISA::UPCState<4>
     // the decoder once the bundle's parallel bit terminates it.
     unsigned _bundleSize = 4;
 
+    // RISC-V (PS.RV) fetch mode: instructions are fixed 32-bit, not VLIW
+    // bundles. The decoder only sees the PCState, so the mode rides here
+    // (ARM-Thumb style). Set from PS.RV at RV-mode entry; preserved on advance.
+    bool _rv = false;
+
   public:
     PCState() = default;
     PCState(const PCState &other) : Base(other),
-        _bundleSize(other._bundleSize) {}
+        _bundleSize(other._bundleSize), _rv(other._rv) {}
     PCState &operator=(const PCState &other) = default;
     explicit PCState(Addr addr) { set(addr); }
 
@@ -49,10 +54,14 @@ class PCState : public GenericISA::UPCState<4>
     {
         Base::update(other);
         _bundleSize = other.as<PCState>()._bundleSize;
+        _rv = other.as<PCState>()._rv;
     }
 
     unsigned bundleSize() const { return _bundleSize; }
     void bundleSize(unsigned s) { _bundleSize = s; }
+
+    bool rv() const { return _rv; }
+    void rv(bool v) { _rv = v; }
 
     // Byte size of the current fetch unit (the bundle).
     Addr size() const { return _bundleSize; }
@@ -82,7 +91,8 @@ class PCState : public GenericISA::UPCState<4>
     equals(const PCStateBase &other) const override
     {
         return Base::equals(other) &&
-            _bundleSize == other.as<PCState>()._bundleSize;
+            _bundleSize == other.as<PCState>()._bundleSize &&
+            _rv == other.as<PCState>()._rv;
     }
 
     void
@@ -90,6 +100,7 @@ class PCState : public GenericISA::UPCState<4>
     {
         Base::serialize(cp);
         SERIALIZE_SCALAR(_bundleSize);
+        SERIALIZE_SCALAR(_rv);
     }
 
     void
@@ -97,6 +108,7 @@ class PCState : public GenericISA::UPCState<4>
     {
         Base::unserialize(cp);
         UNSERIALIZE_SCALAR(_bundleSize);
+        UNSERIALIZE_SCALAR(_rv);
     }
 };
 

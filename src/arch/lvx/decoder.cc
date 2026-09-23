@@ -41,8 +41,15 @@ Decoder::moreBytes(const PCStateBase &pc, Addr fetchPC)
     uint32_t syllable = letoh(machInst);
     if (emi.nsyll < MaxBundleSyllables)
         emi.syllables[emi.nsyll++] = syllable;
-    bool last = !((syllable >> 31) & 0x1) || emi.nsyll >= MaxBundleSyllables;
-    instDone = last;
+    if (pc.as<PCState>().rv()) {
+        // RISC-V (PS.RV) mode: fixed 32-bit instructions, no VLIW bundle and no
+        // parallel bit -- one fetched word is a complete instruction.
+        emi.rv = true;
+        instDone = true;
+    } else {
+        bool last = !((syllable >> 31) & 0x1) || emi.nsyll >= MaxBundleSyllables;
+        instDone = last;
+    }
     outOfBytes = true;
 }
 

@@ -81,6 +81,23 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
     bundleBytes = emi.nsyll * sizeof(uint32_t);
     _size = bundleBytes;
 
+    // RISC-V (PS.RV) mode: the "bundle" is a single fixed 32-bit instruction
+    // with no VLIW steering. Route the word to the riscv decode space and emit
+    // exactly one sub-instruction (see decoder.cc moreBytes / ADR-0001).
+    if (emi.rv) {
+        bundleBytes = sizeof(uint32_t);
+        _size = bundleBytes;
+        uint32_t words[MaxInstSyllables] = { emi.syllables[0] };
+        Opcode op = Decode_Decoding_riscv(words);
+        SubInst &si = subInsts[numSubInsts++];
+        si.opcode = (unsigned)op;
+        si.exu = (unsigned)EXU_ALU0;
+        si.byteOffset = 0;
+        lvx_decode_operands(si.opcode, words, si.decoded);
+        setUpRegs();
+        return;
+    }
+
     IssuedInsn issued[EXU__];
     unsigned bcuInuse = 0, aluInuse = 0, lsuInuse = 0, extInuse = 0;
 

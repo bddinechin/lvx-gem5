@@ -1577,6 +1577,25 @@ Behavior_maskbytes(void *self)
     return (uint32_t)ctx->predication->enables[bit];
 }
 
+// Whether lane INDEX of an instruction with COUNT lanes is enabled: what a
+// MASKS of this bundle named for this unit, or true when there is none.  The
+// lane count comes from the instruction because only it knows -- one lane of
+// `faddwq` is four bytes and one of `addbx` is one -- and it is also what
+// places the slice under .mtd/.mfd, where successive slices of the mask go to
+// the activated units in ascending order, each slice as wide as that unit's
+// own lane count (lvx-mds/docs/Lane-masking-design.md §1.2, §1.4).
+bool
+Behavior_lanemask(void *self, uint8_t index, uint8_t count)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned bit = ctx->maskUnit;
+    if (!ctx->predication || bit >= BundlePredication::MaxUnits ||
+        !ctx->predication->masked[bit])
+        return true;
+    unsigned lane = ctx->predication->slice[bit] * count + index;
+    return lane < 64 && ((ctx->predication->enables[bit] >> lane) & 1u) != 0;
+}
+
 // SRHPC is a privilege-level saved-PC register updated on return; it has no
 // effect on SE-mode user execution (cf. branch_info).
 void

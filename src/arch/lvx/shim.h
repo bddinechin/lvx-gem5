@@ -39,6 +39,9 @@ void Behavior_operandFromRegFile_SFR(void *, unsigned, int, int, int);
 /* Register-file writes (commit phase): store the operand slot to `register_id`
  * if the slot was written by execute. */
 void Behavior_operandToRegFile_GPR(void *, unsigned, int, int, int);
+/* RV_BIR (RISC-V x0-x31) aliases the GPR/GRS storage (ADR-0007). */
+void Behavior_operandFromRegFile_RV_BIR(void *, unsigned, int, int, int);
+void Behavior_operandToRegFile_RV_BIR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_PGR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_QGR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_SFR(void *, unsigned, int, int, int);

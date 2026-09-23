@@ -496,6 +496,28 @@ Behavior_operandFromRegFile_GPR(void *self, unsigned /*stage*/, int /*rank*/,
     ctx->operands[opnd_idx].flags = AccessNone;
 }
 
+// RV_BIR (RISC-V x0-x31) aliases the native GPR/GRS storage (ADR-0007), so its
+// operand accessors are identical to GPR's -- the decoded register_id is already
+// the 0..31 index (decoded - Register_lvx_X0).
+void
+Behavior_operandFromRegFile_RV_BIR(void *self, unsigned /*stage*/, int /*rank*/,
+                                   int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ctx->operands[opnd_idx].value = int256_fromUInt64(readGpr(ctx->tc, register_id));
+    ctx->operands[opnd_idx].flags = AccessNone;
+}
+
+void
+Behavior_operandToRegFile_RV_BIR(void *self, unsigned /*stage*/, int /*rank*/,
+                                 int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!(ctx->operands[opnd_idx].flags & AccessWrite))
+        return; // not written by execute: nothing to commit
+    commitGpr(ctx, register_id, ctx->operands[opnd_idx].value.dwords[0]);
+}
+
 void
 Behavior_operandFromRegFile_PGR(void *self, unsigned /*stage*/, int /*rank*/,
                                 int opnd_idx, int register_id)

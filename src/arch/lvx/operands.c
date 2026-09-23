@@ -80,6 +80,7 @@
 #define rfbase_X16R     (-1)
 #define rfbase_X32R     (-1)
 #define rfbase_X64R     (-1)
+#define rfbase_RV_BIR   (-1)   /* RISC-V x0-x31 alias the GPR/GRS storage (ADR-0007) */
 
 #define REGFILE(f)           rfbase_##f
 #define REGISTER(r)          /* nothing */

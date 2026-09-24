@@ -35,11 +35,39 @@ typedef union int256_t
     uint32_t  words[8];
     uint16_t  hwords[16];
     uint8_t   bytes[32];
-    struct {                       /* low-16 single-bit views (lvx_v2 bit slices) */
-        unsigned bits_0:1,  bits_1:1,  bits_2:1,  bits_3:1,
-                 bits_4:1,  bits_5:1,  bits_6:1,  bits_7:1,
-                 bits_8:1,  bits_9:1,  bits_10:1, bits_11:1,
-                 bits_12:1, bits_13:1, bits_14:1, bits_15:1;
+    struct {                       /* 64x single-bit views */
+        unsigned bit1_0:1,  bit1_1:1,  bit1_2:1,  bit1_3:1,
+                 bit1_4:1,  bit1_5:1,  bit1_6:1,  bit1_7:1,
+                 bit1_8:1,  bit1_9:1,  bit1_10:1, bit1_11:1,
+                 bit1_12:1, bit1_13:1, bit1_14:1, bit1_15:1,
+                 bit1_16:1, bit1_17:1, bit1_18:1, bit1_19:1,
+                 bit1_20:1, bit1_21:1, bit1_22:1, bit1_23:1,
+                 bit1_24:1, bit1_25:1, bit1_26:1, bit1_27:1,
+                 bit1_28:1, bit1_29:1, bit1_30:1, bit1_31:1,
+                 bit1_32:1, bit1_33:1, bit1_34:1, bit1_35:1,
+                 bit1_36:1, bit1_37:1, bit1_38:1, bit1_39:1,
+                 bit1_40:1, bit1_41:1, bit1_42:1, bit1_43:1,
+                 bit1_44:1, bit1_45:1, bit1_46:1, bit1_47:1,
+                 bit1_48:1, bit1_49:1, bit1_50:1, bit1_51:1,
+                 bit1_52:1, bit1_53:1, bit1_54:1, bit1_55:1,
+                 bit1_56:1, bit1_57:1, bit1_58:1, bit1_59:1,
+                 bit1_60:1, bit1_61:1, bit1_62:1, bit1_63:1;
+    };
+    struct {                       /* 32x double-bit views */
+        unsigned bit2_0:2,  bit2_1:2,  bit2_2:2,  bit2_3:2,
+                 bit2_4:2,  bit2_5:2,  bit2_6:2,  bit2_7:2,
+                 bit2_8:2,  bit2_9:2,  bit2_10:2, bit2_11:2,
+                 bit2_12:2, bit2_13:2, bit2_14:2, bit2_15:2,
+                 bit2_16:2,  bit2_17:2,  bit2_18:2,  bit2_19:2,
+                 bit2_20:2,  bit2_21:2,  bit2_22:2,  bit2_23:2,
+                 bit2_24:2,  bit2_25:2,  bit2_26:2,  bit2_27:2,
+                 bit2_28:2,  bit2_29:2,  bit2_30:2,  bit2_31:2;
+    };
+    struct {                       /* 16x quad-bit views */
+        unsigned bit4_0:4,  bit4_1:4,  bit4_2:4,  bit4_3:4,
+                 bit4_4:4,  bit4_5:4,  bit4_6:4,  bit4_7:4,
+                 bit4_8:4,  bit4_9:4,  bit4_10:4, bit4_11:4,
+                 bit4_12:4, bit4_13:4, bit4_14:4, bit4_15:4;
     };
 } int256_t;
 

@@ -4,6 +4,7 @@
  */
 #include "arch/lvx/process.hh"
 
+#include "arch/lvx/pcstate.hh"
 #include "arch/lvx/regs/int.hh"
 #include "base/loader/object_file.hh"
 #include "cpu/thread_context.hh"
@@ -61,7 +62,13 @@ Process::initState()
 
     ThreadContext *tc = system->threads[contextIds[0]];
     tc->setReg(intRegClass[StackPointerReg], sp);
-    tc->pcState(getStartPC());
+
+    // RV64G personality: the loader tags an EM_RISCV image as LvxRv64, and
+    // PCState.rv selects the RISC-V fetch/decode path (mirrors Arm/Thumb). A
+    // native LVX (EM_LVX) image starts with rv clear -- the VLIW bundle path.
+    PCState pc(getStartPC());
+    pc.rv(objFile->getArch() == loader::LvxRv64);
+    tc->pcState(pc);
 }
 
 } // namespace LvxISA

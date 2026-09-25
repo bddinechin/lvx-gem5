@@ -85,6 +85,8 @@ archToString(Arch arch)
         return "riscv32";
       case Lvx64:
         return "lvx64";
+      case LvxRv64:
+        return "lvx-rv64";
       default:
         panic("Unrecognized arch %d.", arch);
     }
@@ -159,6 +161,7 @@ archIs64Bit(const loader::Arch arch)
       case Power64:
       case Riscv64:
       case Lvx64:
+      case LvxRv64:
         return true;
       default:
         return false;

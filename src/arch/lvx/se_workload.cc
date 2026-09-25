@@ -21,7 +21,8 @@ class LvxLoader : public Process::Loader
     Process *
     load(const ProcessParams &params, loader::ObjectFile *obj) override
     {
-        if (obj->getArch() != loader::Lvx64)
+        auto arch = obj->getArch();
+        if (arch != loader::Lvx64 && arch != loader::LvxRv64)
             return nullptr;
         return new LvxISA::Process(params, obj);
     }

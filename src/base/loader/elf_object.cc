@@ -276,8 +276,14 @@ ElfObject::determineArch()
         arch = bits(ehdr.e_entry, 0) ? Thumb : Arm;
     } else if (emach == EM_AARCH64 && eclass == ELFCLASS64) {
         arch = Arm64;
+    } else if (emach == EM_RISCV && eclass == ELFCLASS64) {
+        // The LVX core runs RV64G as a personality selected by PS.RV. Claim a
+        // RISC-V 64-bit ELF for the LVX loader, tagged LvxRv64 so process init
+        // sets PCState.rv (mirrors Arm/Thumb). gem5's own RISC-V arch is not
+        // built into the LVX target, so this is the only consumer of EM_RISCV.
+        arch = LvxRv64;
     } else if (emach == EM_RISCV) {
-        arch = (eclass == ELFCLASS64) ? Riscv64 : Riscv32;
+        arch = Riscv32;
     } else if (emach == EM_LVX) {
         // LVX binaries currently carry KVX's e_machine number (256); gem5
         // recognizes 256 as LVX. LVX is LP64 only.

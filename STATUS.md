@@ -1,7 +1,9 @@
 # LVX gem5 targeting — status
 
 Snapshot of the `arch/lvx` SE-mode port. See `PORTING-PLAN.md` for the strategy
-and `PHASE0-FINDINGS.md` for the reuse-LAO spike. Updated 2026-08-02.
+and `PHASE0-FINDINGS.md` for the reuse-LAO spike. Updated 2026-08-02 (the body has
+been extended well past that date — hosted C and the full scalar-FP surface landed
+2026-09-14).
 
 ## Where it stands
 

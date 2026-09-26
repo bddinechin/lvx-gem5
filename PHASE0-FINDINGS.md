@@ -8,9 +8,9 @@ decoder reach gem5) and size Phase 1. **Result: settled, with running code.**
 The MDS **already** generates, via the existing `BE/GEM5` back-end, everything we
 need as portable C:
 
-- `lvx-mds/refs/BE/GEM5/lvx_v1/behavior_bodies.inc` (74K lines) — per-opcode
+- `lvx-mds/lvx-refs/BE/GEM5/lvx_v1/behavior_bodies.inc` (74K lines) — per-opcode
   `fetch`/`execute`/`commit` bodies.
-- `lvx-mds/refs/BE/GEM5/lvx_v1/Decode.c` (4.6K lines) — the `Decoding.table`
+- `lvx-mds/lvx-refs/BE/GEM5/lvx_v1/Decode.c` (4.6K lines) — the `Decoding.table`
   decode tree as nested-switch C, one function per encoding space
   (`simple`/`double`/`triple`).
 

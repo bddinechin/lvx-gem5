@@ -4,7 +4,7 @@ Status: **historical / superseded.** `PHASE0-FINDINGS.md` and the implemented po
 supersede this draft: the ISS is SE-mode functional and passes 96/96 on the
 native-x86 diff harness, and it **reuses the MDS-generated C verbatim** rather than
 building the "new `BE/GEM5` back-end" this draft's Layer-A strategy proposed. Read
-`PHASE0-FINDINGS.md` and `../../lvx-docs/iss.md` for what was actually built.
+`PHASE0-FINDINGS.md` and `../../docs/iss.md` for what was actually built.
 Goal: a functional gem5 simulator that runs `lvx-mbr-gcc` output so we can validate the LVX compilers.
 
 ## Scope

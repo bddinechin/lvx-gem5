@@ -43,7 +43,7 @@ lvx-mds/build_lvx/BE/GEM5 install`.
   reaches through its byte-splat.
 - **Syscalls**: the set libgloss issues — `exit`, `write`, `read`, `open`,
   `close`, `lseek`, `fstat`, `stat`, `isatty`, `access`, `unlink` — over the LVX
-  ABI (args r0..r7, return r0), enough for hosted stdio. `close` deliberately
+  ABI (see `../docs/isa.md`), enough for hosted stdio. `close` deliberately
   reports success without acting on fds 0..2: SE-mode passes guest descriptors
   through to the host, and newlib's exit-time stdio cleanup would otherwise close
   the simulator's own stdout. Covered by `tests/lvx/scall.c` (12 checks).

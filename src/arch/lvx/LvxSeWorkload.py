@@ -12,4 +12,9 @@ class LvxSEWorkload(SEWorkload):
 
     @classmethod
     def _is_compatible_with(cls, obj):
-        return obj.get_arch() == "lvx64"
+        # Both personalities of the one core: "lvx64" is a native VLIW image,
+        # "lvx-rv64" an EM_RISCV one the loader claimed for RV64G mode (the
+        # C++ LvxLoader in se_workload.cc accepts the same pair).  Leaving the
+        # second out here is not a quiet degradation -- it makes a RISC-V ELF
+        # fail with "No SE workload is compatible", before any decode.
+        return obj.get_arch() in ("lvx64", "lvx-rv64")

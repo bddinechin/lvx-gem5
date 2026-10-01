@@ -81,3 +81,32 @@ byte size) via `--debug-flags=LvxDecode`.
   The syscall numbers and the `S_*` open-flag encoding are the target's, owned
   by lvx-newlib (`newlib/libc/sys/mbr/include/mbr/lvx/scall_no.h`) and issued by
   `libgloss/lvx-mbr/asm_syscalls.S`.  Keep the shim and that header in sync.
+
+## RV64G personality (the `PS.RV` mode)
+
+- `rv_hello` → `hello from rv64` on stdout, then `code=42`.  The first program
+  the ISS executes in RISC-V mode: it proves the whole entry path at once —
+  an `EM_RISCV` ELF claimed as `loader::LvxRv64`, `PCState.rv()` set from it,
+  `moreBytes` fetching one fixed 32-bit word instead of a parallel-bit bundle,
+  `Decode_Decoding_riscv` dispatching it, and `ECALL` reaching
+  `Behavior_rv_syscall` with the RISC-V ABI (number in `a7`, arguments in
+  `a0..a5`, result in `a0`).  `write` exercises the argument registers and
+  target memory, and the exit status is the byte count it *returned* plus 26,
+  so the result half of the ABI is proved as well as the argument half — and
+  the `add` means a `code=42` cannot come from a decode that silently did
+  nothing.
+
+  There is **no RISC-V assembler here** (ADR-0004: the upstream
+  `riscv64-unknown-elf` toolchain is the one that builds RISC-V code, and it is
+  not installed on this machine), so the ELF is hand-encoded by
+  `tests/lvx/mkrv.py` — `python3 tests/lvx/mkrv.py` rewrites `rv_hello.elf`.
+  When that toolchain arrives, write these as `.s` files and delete the script.
+
+  ```bash
+  python3 tests/lvx/mkrv.py
+  build/gem5-lvx1.opt tests/lvx/run_lvx.py tests/lvx/rv_hello.elf
+  ```
+
+  The RV instruction set is a **seed**, not a port: `lui`, `addi`, `add`,
+  `ecall`, `ebreak` and nothing else (`docs/riscv-mode.md` in `lvx-csw` has the
+  gap list).  A program using anything more decodes to `Opcode__UNDEF`.

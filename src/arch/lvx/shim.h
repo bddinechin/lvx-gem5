@@ -133,6 +133,11 @@ int256_t Behavior_readFromStorage_SFR(void *, unsigned, unsigned, unsigned, unsi
 /* SRS: unified system-register storage (shares SFR numbering). Post SFR->SRS
  * refactor this is the main system-register access path (PS, CS, LS/LE/LC...). */
 int256_t Behavior_readFromStorage_SRS(void *, unsigned, unsigned, unsigned, unsigned);
+/* GRS: the general-register storage, read by a *constant* index rather than
+ * through an operand -- which only RISC-V ECALL does today (the call number is
+ * architecturally in x17/a7, not in an operand field). The operand path is
+ * operandFromRegFile_GPR; this is the AGGL.GRS one. */
+int256_t Behavior_readFromStorage_GRS(void *, unsigned, unsigned, unsigned, unsigned);
 void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, int256_t);

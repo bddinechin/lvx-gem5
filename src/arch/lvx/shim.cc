@@ -23,6 +23,7 @@
 #include <cassert>
 #include <cerrno>
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,8 @@
 #include "cpu/thread_context.hh"
 #include "debug/LvxDecode.hh"
 #include "mem/se_translating_port_proxy.hh"
+#include "sim/mem_state.hh"
+#include "sim/process.hh"
 #include "sim/sim_exit.hh"
 
 namespace gem5
@@ -725,6 +728,27 @@ Behavior_readFromStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
         v = (v << (size * i)) | reg;
     }
     return int256_fromUInt64(v);
+}
+
+// AGGL.GRS: the general registers read by a *constant* index rather than
+// through an operand field.  The only caller is RISC-V ECALL, whose call number
+// is architecturally in x17 (a7) -- there is no operand to carry it.  The value
+// read is the committed one: ECALL reads at ID, before any write of its own
+// bundle, and the RV personality issues one instruction at a time anyway.
+int256_t
+Behavior_readFromStorage_GRS(void *self, unsigned /*stage*/, unsigned offset,
+                             unsigned extent, unsigned size)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    assert(size == 64);
+    // Low register first, so a future pair/quad read is r[n], r[n+1], ... --
+    // readFromStorage_SRS packs the other way because its callers read one
+    // register and the shift is then a no-op.
+    uint64_t d[4] = { 0, 0, 0, 0 };
+    panic_if(extent > 4, "LVX: AGGL.GRS extent %u (max 4)", extent);
+    for (unsigned i = 0; i < extent; ++i)
+        d[i] = readGpr(ctx->tc, offset + i);
+    return int256_make(d[0], d[1], d[2], d[3]);
 }
 
 void
@@ -1447,6 +1471,307 @@ Behavior_syscall(void *self, uint64_t number)
       default:
         warn("LVX: unhandled scall #%llu (returning -ENOSYS)\n",
              (unsigned long long)n);
+        ret(-ENOSYS);
+        break;
+    }
+}
+
+// --- RV64G environment calls (ECALL) -----------------------------------------
+//
+// A separate system-call interface from Behavior_syscall above, not the same
+// one reached by another instruction, because all three parts of it differ:
+//
+//   * the ABI -- the number is in a7 (x17 = GRS 17, read by ECALL's own
+//     behavior and handed to this helper), the arguments in a0..a5
+//     (x10..x15), the result in a0.  Native scall carries its number as an
+//     immediate and passes r0..r7, returning in r0;
+//   * the NUMBERING -- a riscv64-unknown-elf newlib issues the Linux/RISC-V
+//     numbers (write 64, exit 93, brk 214, and the 1024+ legacy block),
+//     libgloss the kv4-v1 ones of scall_no.h;
+//   * the STRUCT LAYOUTS -- SYS_fstat means the Linux riscv64 `struct stat`,
+//     where libgloss's own fstat passes a uint64_t[13] it unpacks itself.
+//
+// Only the primitives are shared (sysResult, readTargetString).  The error
+// convention is the same as the native one and as Linux's: the negated errno as
+// the result, which is what riscv newlib's syscall_errno expects --
+//   if (ret < 0) { errno = -ret; return -1; }
+//
+// Unimplemented numbers return -ENOSYS with a warning naming the number, so a
+// program that needs more says so rather than failing obscurely.
+
+// The Linux riscv64 `struct stat` (asm-generic/stat.h), 128 bytes.  Written
+// field by field into a byte buffer rather than as a host struct: the host's
+// layout is not the target's, and this way the offsets are the documentation.
+static void
+writeRvStat(ThreadContext *tc, Addr addr, const struct stat &st)
+{
+    uint8_t buf[128];
+    std::memset(buf, 0, sizeof(buf));
+    auto put64 = [&](unsigned off, uint64_t v) { std::memcpy(buf + off, &v, 8); };
+    auto put32 = [&](unsigned off, uint32_t v) { std::memcpy(buf + off, &v, 4); };
+    put64(0,   st.st_dev);
+    put64(8,   st.st_ino);
+    put32(16,  st.st_mode);
+    put32(20,  st.st_nlink);
+    put32(24,  st.st_uid);
+    put32(28,  st.st_gid);
+    put64(32,  st.st_rdev);
+    //    40:  __pad1
+    put64(48,  (uint64_t)st.st_size);
+    put32(56,  (uint32_t)st.st_blksize);
+    //    60:  __pad2
+    put64(64,  (uint64_t)st.st_blocks);
+    put64(72,  (uint64_t)st.st_atime);
+    //    80:  st_atime_nsec
+    put64(88,  (uint64_t)st.st_mtime);
+    //    96:  st_mtime_nsec
+    put64(104, (uint64_t)st.st_ctime);
+    //   112:  st_ctime_nsec, 120: __unused[2]
+    SETranslatingPortProxy proxy(tc);
+    proxy.writeBlob(addr, buf, sizeof(buf));
+}
+
+// SYS_openat's flag word in the Linux/RISC-V kernel encoding, which is NOT
+// newlib's own BSD-derived O_* set (there O_CREAT is 0x200, here 0x40).
+//
+// TO VERIFY the day a riscv64-unknown-elf toolchain is installed: compile a
+// program that does open(path, O_CREAT|O_TRUNC|O_WRONLY, 0644) and check which
+// bits arrive here.  If newlib sends its own values rather than the kernel's,
+// this table is what changes -- the warning below is the tripwire.
+enum RvOpenFlags
+{
+    RV_O_ACCMODE  = 0x0003,
+    RV_O_CREAT    = 0x0040,
+    RV_O_EXCL     = 0x0080,
+    RV_O_NOCTTY   = 0x0100,
+    RV_O_TRUNC    = 0x0200,
+    RV_O_APPEND   = 0x0400,
+    RV_O_NONBLOCK = 0x0800,
+    RV_O_SYNC     = 0x1000,
+    RV_O_DIRECTORY = 0x10000,
+    RV_O_CLOEXEC  = 0x80000,
+};
+
+static int
+rvToHostOpenFlags(uint64_t f)
+{
+    const uint64_t known = RV_O_ACCMODE | RV_O_CREAT | RV_O_EXCL | RV_O_NOCTTY |
+                           RV_O_TRUNC | RV_O_APPEND | RV_O_NONBLOCK |
+                           RV_O_SYNC | RV_O_DIRECTORY | RV_O_CLOEXEC;
+    if (f & ~known)
+        warn("LVX RV: open flags 0x%llx carry bits this shim does not know "
+             "(0x%llx); see rvToHostOpenFlags\n",
+             (unsigned long long)f, (unsigned long long)(f & ~known));
+
+    // The access mode is a 2-bit value, not a set of bits (O_RDONLY is 0 on
+    // both sides), so it is decided rather than or-ed -- as in the native
+    // lvxToHostOpenFlags above.
+    int hf = ((f & RV_O_ACCMODE) == 1) ? O_WRONLY
+           : ((f & RV_O_ACCMODE) == 2) ? O_RDWR
+                                       : O_RDONLY;
+    if (f & RV_O_CREAT)     hf |= O_CREAT;
+    if (f & RV_O_EXCL)      hf |= O_EXCL;
+    if (f & RV_O_NOCTTY)    hf |= O_NOCTTY;
+    if (f & RV_O_TRUNC)     hf |= O_TRUNC;
+    if (f & RV_O_APPEND)    hf |= O_APPEND;
+    if (f & RV_O_NONBLOCK)  hf |= O_NONBLOCK;
+    if (f & RV_O_SYNC)      hf |= O_SYNC;
+    if (f & RV_O_DIRECTORY) hf |= O_DIRECTORY;
+    if (f & RV_O_CLOEXEC)   hf |= O_CLOEXEC;
+    return hf;
+}
+
+void
+Behavior_rv_syscall(void *self, uint64_t number)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ThreadContext *tc = ctx->tc;
+    // RISC-V calling convention: a0..a5 = x10..x15 = GRS 10..15, result in a0.
+    auto arg = [&](int i) { return (uint64_t)tc->getReg(intRegClass[10 + i]); };
+    auto ret = [&](int64_t v) { tc->setReg(intRegClass[10], (uint64_t)v); };
+
+    switch (number) {
+      // --- process ---
+      case 93:    // SYS_exit(status)
+      case 94: {  // SYS_exit_group(status)
+        exitSimLoop("target exited", (int)arg(0));
+        break;
+      }
+
+      // --- file descriptors ---
+      case 57: {  // SYS_close(fd)
+        // As in the native path: the guest's descriptors are the simulator's
+        // own, so closing a standard stream would close gem5's.  newlib does
+        // exactly that in its exit-time stdio cleanup.
+        int fd = (int)arg(0);
+        ret(fd <= 2 ? 0 : sysResult(::close(fd)));
+        break;
+      }
+      case 62: {  // SYS_lseek(fd, offset, whence)
+        ret(sysResult(::lseek((int)arg(0), (off_t)arg(1), (int)arg(2))));
+        break;
+      }
+      case 63: {  // SYS_read(fd, buf, count)
+        uint64_t count = arg(2);
+        std::vector<uint8_t> data(count);
+        ssize_t r = ::read((int)arg(0), data.data(), count);
+        if (r > 0) {
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(1), data.data(), r);
+        }
+        ret(sysResult(r));
+        break;
+      }
+      case 64: {  // SYS_write(fd, buf, count)
+        uint64_t count = arg(2);
+        std::vector<uint8_t> data(count);
+        if (count) {
+            SETranslatingPortProxy proxy(tc);
+            proxy.readBlob((Addr)arg(1), data.data(), count);
+        }
+        ret(sysResult(::write((int)arg(0), data.data(), count)));
+        break;
+      }
+      case 56: {  // SYS_openat(dirfd, path, flags, mode)
+        // newlib's _open passes AT_FDCWD; anything else would need openat on
+        // the host with a translated descriptor, which nothing issues yet.
+        std::string path = readTargetString(tc, (Addr)arg(1));
+        int dirfd = (int)arg(0);
+        if (dirfd != -100 /* AT_FDCWD */) {
+            warn("LVX RV: openat with dirfd %d (not AT_FDCWD) is unsupported\n",
+                 dirfd);
+            ret(-ENOSYS);
+            break;
+        }
+        ret(sysResult(::open(path.c_str(), rvToHostOpenFlags(arg(2)),
+                             (mode_t)arg(3))));
+        break;
+      }
+      case 1024: { // SYS_open(path, flags, mode) -- the legacy number
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::open(path.c_str(), rvToHostOpenFlags(arg(1)),
+                             (mode_t)arg(2))));
+        break;
+      }
+      case 25: {  // SYS_fcntl(fd, cmd, arg)
+        int cmd = (int)arg(1);
+        long a = (long)arg(2);
+        if (cmd == F_SETFL)
+            a = rvToHostOpenFlags((uint64_t)a);
+        ret(sysResult(::fcntl((int)arg(0), cmd, a)));
+        break;
+      }
+
+      // --- stat family: the Linux riscv64 struct stat ---
+      case 80: {  // SYS_fstat(fd, statbuf)
+        struct stat st;
+        int r = ::fstat((int)arg(0), &st);
+        if (r == 0)
+            writeRvStat(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+      case 1038: { // SYS_stat(path, statbuf)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        struct stat st;
+        int r = ::stat(path.c_str(), &st);
+        if (r == 0)
+            writeRvStat(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+      case 1039: { // SYS_lstat(path, statbuf)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        struct stat st;
+        int r = ::lstat(path.c_str(), &st);
+        if (r == 0)
+            writeRvStat(tc, (Addr)arg(1), st);
+        ret(sysResult(r));
+        break;
+      }
+
+      // --- file system ---
+      case 1025: { // SYS_link(existing, new)
+        std::string from = readTargetString(tc, (Addr)arg(0));
+        std::string to = readTargetString(tc, (Addr)arg(1));
+        ret(sysResult(::link(from.c_str(), to.c_str())));
+        break;
+      }
+      case 1026: { // SYS_unlink(path)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::unlink(path.c_str())));
+        break;
+      }
+      case 1030: { // SYS_mkdir(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::mkdir(path.c_str(), (mode_t)arg(1))));
+        break;
+      }
+      case 1033: { // SYS_access(path, mode)
+        std::string path = readTargetString(tc, (Addr)arg(0));
+        ret(sysResult(::access(path.c_str(), (int)arg(1))));
+        break;
+      }
+      case 17: {  // SYS_getcwd(buf, size)
+        std::vector<char> buf(arg(1) ? arg(1) : 1);
+        if (::getcwd(buf.data(), buf.size()) == nullptr) {
+            ret(-errno);
+        } else {
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(0), (const uint8_t *)buf.data(),
+                            std::strlen(buf.data()) + 1);
+            ret((int64_t)(std::strlen(buf.data()) + 1));
+        }
+        break;
+      }
+
+      // --- heap ---
+      case 214: { // SYS_brk(addr)
+        // Linux brk: a request of 0 queries the current break, and the result
+        // is always the break *after* the call (the old one if it could not
+        // move), which is what newlib's _sbrk compares against.  gem5's
+        // MemState does the page mapping and the bookkeeping.
+        auto *p = tc->getProcessPtr();
+        Addr cur = p->memState->getBrkPoint();
+        Addr req = (Addr)arg(0);
+        if (req != 0 && req != cur)
+            p->memState->updateBrkRegion(cur, req);
+        ret((int64_t)p->memState->getBrkPoint());
+        break;
+      }
+
+      // --- identity: a single-hart SE-mode process, as the machine ID CSRs say ---
+      case 172: ret(100); break;        // SYS_getpid
+      case 174: case 175: ret(0); break; // SYS_getuid / SYS_geteuid
+      case 176: case 177: ret(0); break; // SYS_getgid / SYS_getegid
+
+      // --- time ---
+      case 169: { // SYS_gettimeofday(tv, tz)
+        struct timeval tv;
+        int r = ::gettimeofday(&tv, nullptr);
+        if (r == 0 && arg(0)) {
+            // struct timeval on riscv64: two 64-bit longs.
+            uint64_t out[2] = { (uint64_t)tv.tv_sec, (uint64_t)tv.tv_usec };
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(0), (const uint8_t *)out, sizeof(out));
+        }
+        ret(sysResult(r));
+        break;
+      }
+      case 1062: { // SYS_time(tloc)
+        time_t t = ::time(nullptr);
+        if (arg(0)) {
+            uint64_t v = (uint64_t)t;
+            SETranslatingPortProxy proxy(tc);
+            proxy.writeBlob((Addr)arg(0), (const uint8_t *)&v, sizeof(v));
+        }
+        ret((int64_t)t);
+        break;
+      }
+
+      default:
+        warn("LVX RV: unhandled ecall #%llu (returning -ENOSYS)\n",
+             (unsigned long long)number);
         ret(-ENOSYS);
         break;
     }

@@ -1804,4 +1804,29 @@ Behavior_ccbcomp(void * /*self*/, uint8_t code, uint64_t a, uint64_t b)
     return lvxIntcomp(code & 7, (int64_t)a, (int64_t)b, a, b);
 }
 
+// Tail-mask lane predicate (TAILD).  opnd1 is the `lanecount` modifier code, so
+// the lane count is 1 << code (.V1 through .V128); opnd2 is the index, opnd3 the
+// lane number, opnd4 the bound.  A lane at or above the count is inactive,
+// which is what clears the mask bits above the lane count -- the convention
+// popcount and the any/all-active tests rely on.
+//
+// Unsigned throughout: TAILD is the unsigned exclusive prefix, and an index and
+// a trip count are both non-negative.  The index-plus-lane sum is formed at 65
+// bits so it cannot wrap at the top of the range and turn on a lane that should
+// be off; that widening is the whole reason this is a helper rather than an ADD
+// in the Behavior.
+//
+// Note .V128 asks for 128 lanes but the destination is one GPR, so the behavior
+// only ever offers 64 lanes and .V128 comes out equal to .V64.
+bool
+Behavior_tailcomp(void * /*self*/, uint8_t lanecount, uint64_t index,
+                  uint8_t lane, uint64_t bound)
+{
+    if (lanecount > 7)
+        panic("LVX: unknown lanecount code %d", lanecount);
+    if (lane >= (1u << lanecount))
+        return false;
+    return (uint128_t)index + lane < (uint128_t)bound;
+}
+
 } // extern "C"

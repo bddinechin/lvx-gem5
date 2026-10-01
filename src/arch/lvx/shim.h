@@ -117,6 +117,12 @@ bool Behavior_intcomp_64(void *, uint8_t /*code*/, uint64_t, uint64_t);
  * double-word LT/GE/LTU/GEU/EQ/NE/ANY/NONE, 8-15 = the same relations at
  * word width), opnd2/opnd3 the two values; returns the boolean result. */
 bool Behavior_ccbcomp(void *, uint8_t /*code*/, uint64_t, uint64_t);
+/* Tail-mask lane predicate (TAILD): opnd1 = the lanecount code, so the lane
+ * count is 1 << code; opnd2 = the index, opnd3 = the lane, opnd4 = the bound.
+ * True when the lane is active: lane below the count, and index + lane < bound
+ * as unsigned, the sum formed at 65 bits so it cannot wrap. */
+bool Behavior_tailcomp(void *, uint8_t /*lanecount*/, uint64_t, uint8_t /*lane*/,
+                       uint64_t);
 
 int256_t Behavior_readFromStorage_PC (void *, unsigned, unsigned, unsigned, unsigned);
 int256_t Behavior_readFromStorage_NPC(void *, unsigned, unsigned, unsigned, unsigned);

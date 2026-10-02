@@ -24,6 +24,7 @@
 #include <cerrno>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -1065,6 +1066,53 @@ Behavior_MEM_atomic_swap(void *self, uint64_t addr, int256_t byteMask,
 {
     return lvxAtomicRmw(self, LvxAtomicOp::Swap, addr, byteMask,
                         int256_toUInt64(value));
+}
+
+// --- RISC-V LR/SC ------------------------------------------------------------
+//
+// One hart on an in-order atomic CPU, so the only thing that can break a
+// reservation is the program itself: there is no other agent to race, and no
+// cache coherence to lose it to.  What is modelled, then, is the part the ISA
+// requires and a program can observe -- an SC with no reservation, or one for a
+// different address, fails -- which is what makes the usual LR/SC retry loop
+// terminate rather than spin.  A multi-hart FS-lite ISS (milestone 2 of
+// docs/riscv-mode.md) will have to break reservations on another hart's store;
+// this is deliberately the single-hart case and nothing more.
+namespace
+{
+// Per-thread, keyed by context id, so two threads do not share a reservation
+// even though nothing yet invalidates one across them.
+std::map<ContextID, Addr> rvReservation;
+} // anonymous namespace
+
+int256_t
+Behavior_MEM_load_reserve(void *self, uint64_t addr, int256_t byteMask,
+                          uint8_t /*modifier*/, uint8_t /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    rvReservation[ctx->tc->contextId()] = (Addr)addr;
+    int256_t result = int256_zero;
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.readBlob((Addr)addr, result.bytes, size);
+    return result;
+}
+
+int256_t
+Behavior_MEM_store_conditional(void *self, uint64_t addr, int256_t byteMask,
+                               uint8_t /*modifier*/, uint64_t value,
+                               uint8_t /*dri*/)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ContextID id = ctx->tc->contextId();
+    auto reserved = rvReservation.find(id);
+    if (reserved == rvReservation.end() || reserved->second != (Addr)addr)
+        return int256_fromUInt64(1);        // failure: rd = 1
+    rvReservation.erase(reserved);          // a reservation serves one SC
+    unsigned size = lvxAccessSize(byteMask.words[0]);
+    SETranslatingPortProxy proxy(ctx->tc);
+    proxy.writeBlob((Addr)addr, (const uint8_t *)&value, size);
+    return int256_zero;                     // success: rd = 0
 }
 
 // The plain atomic load and store.  They differ from MEM_load/MEM_store only in

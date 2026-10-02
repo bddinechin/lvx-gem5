@@ -105,12 +105,24 @@ make -C tests/lvx/rv run GEM5=$PWD/build/gem5-lvx2.opt     # on gem5-lvx2.opt
   parallel-bit bundle, `Decode_Decoding_riscv` dispatching it, and `ecall`
   reaching `Behavior_rv_syscall` with the RISC-V ABI (number in `a7`,
   arguments in `a0..a5`, result in `a0`).
+- `rv64ma` -> `rv64ma ok`, then `code=0`. M and A in eight checks: the high
+  multiplies (where a wrong signedness is invisible to a plain `*`), the
+  divides including RISC-V's two *defined* special cases (by zero, and
+  most-negative by -1), the signed remainder's sign, the W forms' extension
+  from bit 31, the read-modify-writes returning the OLD value, and a
+  compare-and-swap the compiler builds out of LR/SC -- which is where an
+  inverted SC result or a reservation that never holds shows up, as a retry
+  loop that either never terminates or never stores.  Check 3 is the negative
+  dividend that caught both of KV4's divide operators being the floored pair
+  (lvx-mds 7b9b785).
 - `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
   port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
   and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register
   read is unsigned at its container width, so `bgez` with -1 in the register
   branched as if -1 >= 0. Only a negative operand shows it.
 
-The RV instruction set is **RV64I so far**, not all of RV64G: no M, A, F, D,
-Zicsr or Zifencei yet (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so
-a program that multiplies or uses a float decodes to `Opcode__UNDEF`.
+The RV instruction set is **RV64IMA so far**, not all of RV64G: no F, D,
+Zicsr or Zifencei yet (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so a
+program that uses a float decodes to `Opcode__UNDEF`.  The tests are compiled
+`-march=rv64imafd` even so -- the ABI requires D -- and simply do not use the
+parts that are missing.

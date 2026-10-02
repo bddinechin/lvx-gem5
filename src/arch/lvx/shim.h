@@ -63,6 +63,11 @@ void    Behavior_MEM_store(void *, uint64_t, int256_t, uint8_t, int256_t, uint8_
  * operand, last = destination-register info (unused functionally).  Each returns
  * the PREVIOUS memory contents, which is what the AL* forms write back to their
  * register and the AS* forms discard. */
+/* RISC-V LR/SC.  Shaped like MEM_load/MEM_store plus the reservation:
+ * load_reserve registers one on the address, store_conditional honours it and
+ * returns 0 on success, 1 on failure (which is what SC.W/SC.D write to rd). */
+int256_t Behavior_MEM_load_reserve      (void *, uint64_t, int256_t, uint8_t, uint8_t);
+int256_t Behavior_MEM_store_conditional (void *, uint64_t, int256_t, uint8_t, uint64_t, uint8_t);
 int256_t Behavior_MEM_atomic_add (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
 int256_t Behavior_MEM_atomic_and (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);
 int256_t Behavior_MEM_atomic_ior (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);

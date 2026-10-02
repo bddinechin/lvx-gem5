@@ -1,3 +1,8 @@
 # Assembled test artifacts (built from the .s sources with the lvx-mbr toolchain).
 *.o
 *.elf
+
+# The differential FP check's build products: the host-side binary and the two
+# outputs it compares.  `make -C rv diff' rebuilds them.
+*.host
+*.out

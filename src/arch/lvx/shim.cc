@@ -534,6 +534,35 @@ Behavior_operandToRegFile_RV_BIR(void *self, unsigned /*stage*/, int /*rank*/,
     commitGpr(ctx, register_id, ctx->operands[opnd_idx].value.dwords[0]);
 }
 
+// RV_FPR (RISC-V f0-f31) is the upper half of the same file: ADR-0007 puts f0
+// at GRS 32, so these are the GPR accessors plus the offset.  There is no f0
+// exception -- f0 is an ordinary register in RISC-V, unlike x0.
+namespace
+{
+constexpr int RvFprBase = 32;
+} // anonymous namespace
+
+void
+Behavior_operandFromRegFile_RV_FPR(void *self, unsigned /*stage*/, int /*rank*/,
+                                   int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    ctx->operands[opnd_idx].value =
+        int256_fromUInt64(readGpr(ctx->tc, RvFprBase + register_id));
+    ctx->operands[opnd_idx].flags = AccessNone;
+}
+
+void
+Behavior_operandToRegFile_RV_FPR(void *self, unsigned /*stage*/, int /*rank*/,
+                                 int opnd_idx, int register_id)
+{
+    BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
+    if (!(ctx->operands[opnd_idx].flags & AccessWrite))
+        return;
+    commitGpr(ctx, RvFprBase + register_id,
+              ctx->operands[opnd_idx].value.dwords[0]);
+}
+
 void
 Behavior_operandFromRegFile_PGR(void *self, unsigned /*stage*/, int /*rank*/,
                                 int opnd_idx, int register_id)

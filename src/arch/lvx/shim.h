@@ -42,6 +42,9 @@ void Behavior_operandToRegFile_GPR(void *, unsigned, int, int, int);
 /* RV_BIR (RISC-V x0-x31) aliases the GPR/GRS storage (ADR-0007). */
 void Behavior_operandFromRegFile_RV_BIR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_RV_BIR(void *, unsigned, int, int, int);
+/* RV_FPR (RISC-V f0-f31) aliases GRS 32..63, so its accessors add the offset. */
+void Behavior_operandFromRegFile_RV_FPR(void *, unsigned, int, int, int);
+void Behavior_operandToRegFile_RV_FPR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_PGR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_QGR(void *, unsigned, int, int, int);
 void Behavior_operandToRegFile_SFR(void *, unsigned, int, int, int);

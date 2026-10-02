@@ -133,14 +133,27 @@ constexpr uint64_t kDefaultNaN64 = UINT64_C(0x7FF8000000000000);
 // comparison of a and b (either NaN => unordered, else less/greater/equal, with
 // +0.0 == -0.0). Matches the KVX reference and RISC-V compare results (OEQ =
 // FEQ, OLT = FLT, OGE = a>=b i.e. FLE swapped; odd codes are the negations).
-// Quiet compares -- a quiet NaN raises nothing; a signalling NaN raises NV,
-// which FP_COMPARE below threads out as the second tuple element.
+//
+// Bit 3 of the code selects the SIGNALLING comparison. IEEE has both families
+// and so does RISC-V: FEQ is quiet (a quiet NaN raises nothing), while FLT and
+// FLE are signalling (any NaN raises NV). The native LVX FCOMP* is the quiet
+// one -- its description says so -- and had no way to ask for the other, which
+// the RV64G port needs for exactly two of its three compares. The modifier
+// the native instruction passes is 3 bits, so code 8+ can only come from a
+// description that asked for it by constant.
+//
+// Either way the NV that is raised is threaded out by FP_COMPARE below as the
+// second tuple element.
 #define FP_CMP_HELPER(W)                                                  \
 inline bool lvxFloatcomp##W(uint8_t code, uint64_t a, uint64_t b)         \
 {                                                                         \
-    bool lt = f##W##_lt_quiet(fp##W(a), fp##W(b));                        \
-    bool gt = f##W##_lt_quiet(fp##W(b), fp##W(a));                        \
-    bool eq = f##W##_eq(fp##W(a), fp##W(b));                              \
+    bool signalling = (code & 8) != 0;                                    \
+    bool lt = signalling ? f##W##_lt(fp##W(a), fp##W(b))                  \
+                         : f##W##_lt_quiet(fp##W(a), fp##W(b));           \
+    bool gt = signalling ? f##W##_lt(fp##W(b), fp##W(a))                  \
+                         : f##W##_lt_quiet(fp##W(b), fp##W(a));           \
+    bool eq = signalling ? f##W##_eq_signaling(fp##W(a), fp##W(b))        \
+                         : f##W##_eq(fp##W(a), fp##W(b));                 \
     switch (code & 7) {                                                   \
       case 0:  return   lt || gt;    /* ONE ordered and not equal */      \
       case 1:  return !(lt || gt);   /* UEQ unordered or equal */         \

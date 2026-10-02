@@ -89,9 +89,11 @@ assembles and compiles no RISC-V) -- see `../../../riscv-toolchain/README.md`
 for where that comes from and the one trap in using it.
 
 ```bash
-make -C tests/lvx/rv run                                   # on gem5-lvx1.opt
-make -C tests/lvx/rv run GEM5=$PWD/build/gem5-lvx2.opt     # on gem5-lvx2.opt
+make -C tests/lvx/rv check                                 # on gem5-lvx1.opt
+make -C tests/lvx/rv check GEM5=$PWD/build/gem5-lvx2.opt   # on gem5-lvx2.opt
 ```
+
+`check` is `run` (the self-checking programs) then `diff` (the FP oracle).
 
 - `rv64i` -> `rv64i ok` on stdout, then `code=0`. Nine checks over the base
   integer set: the W forms and their sign extension from bit 31, the logical
@@ -125,14 +127,40 @@ make -C tests/lvx/rv run GEM5=$PWD/build/gem5-lvx2.opt     # on gem5-lvx2.opt
   six `csrw`s -- `csrw csr, rs` *is* `csrrw x0, csr, rs`, and the shared
   dispatch commits unconditionally, so x0 has to be hardwired in the shim
   rather than guarded by the format.
+- `fp` -> `fp: identical, 5138 words`, and it is **not** self-checking: the same
+  `fp.c` is built twice, once for RV64 and once for the host, run on both, and
+  the two outputs compared word for word by `fpdiff.py`.  F and D were the one
+  group the port could not import as it stood -- every FP body was rewritten
+  from KV4's "return a value, sweep the flags up later" shape into LVX's
+  flag-tuple one -- so "it decodes" was worth very little and "it computes the
+  same double as x86" was worth a lot.  It writes RAW BIT PATTERNS, not text,
+  which is what makes it catch a signed zero, a NaN payload, a result rounded
+  the wrong way in the last place, and a float that was never NaN-boxed.
+  Coverage: the five arithmetic operations over every ordered PAIR of 20
+  doubles and 16 floats (an operand swap in FSUB or FDIV shows up at once),
+  sqrt, the four FMA sign combinations, min/max, the three compares, every
+  conversion in both directions and both signednesses, the sign-injections, and
+  two accumulation chains so a float that lost its boxing poisons everything
+  after it.
+
+  Its first run found 41 differing words of 5138 -- and **every one was the ISS
+  being right**, in the three places C leaves the answer undefined or
+  unspecified and RISC-V specifies it: the sign of a produced NaN (x86's
+  default NaN is negative, RISC-V's canonical one positive), out-of-range and
+  NaN float-to-integer conversions (x86 returns "integer indefinite" and wraps
+  negatives into unsigned; RISC-V saturates), and min/max of the two zeros.
+  So the host side computes RISC-V's rule for those three, rather than the test
+  carrying an exclusion list -- the comparison stays exact and the three
+  divergences are stated in code.
 - `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
   port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
   and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register
   read is unsigned at its container width, so `bgez` with -1 in the register
   branched as if -1 >= 0. Only a negative operand shows it.
 
-The RV instruction set is **RV64IMA + Zicsr + Zifencei so far**, which is
-RV64G short of F and D (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so
-a program that uses a float decodes to `Opcode__UNDEF`.  The tests are
-compiled `-march=rv64imafd` even so -- the ABI requires D -- and simply do not
-use the parts that are missing.
+The RV instruction set is now **all of RV64G**: I, M, A, F, D, Zicsr and
+Zifencei, 165 opcodes.  What is still missing is above the ISA -- traps,
+interrupts, PMP, more than one hart -- which `docs/riscv-mode.md` in `lvx-csw`
+tracks as milestones 2 and 3.  Not ported, deliberately: the B extension,
+Zacas, Zabha, Zicbo and Zicond, which KV4's material also carries and the
+profile of ADR-0001 does not name.

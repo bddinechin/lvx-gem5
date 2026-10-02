@@ -29,10 +29,11 @@ GCCEXEC ?= $(RISCVDIR)/gccexec/
 # test is freestanding over start.S.
 ARCH   ?= rv64imafd
 ABI    ?= lp64d
-CFLAGS  = -B$(GCCEXEC) -march=$(ARCH) -mabi=$(ABI) -mcmodel=medany \
+CFLAGS  = -B$(GCCEXEC) -ffp-contract=off -march=$(ARCH) -mabi=$(ABI) -mcmodel=medany \
           -msmall-data-limit=0 -O2 -ffreestanding -fno-builtin -Wall -Wextra
 LDFLAGS = -nostdlib -nostartfiles -Wl,-Ttext=0x10000 -Wl,-e,_start
 
+HOSTCC ?= gcc
 GEM5   ?= $(CURDIR)/../../../build/gem5-lvx1.opt
 RUNCFG  = $(CURDIR)/../run_lvx.py
 
@@ -44,8 +45,22 @@ all: $(ELFS)
 %.elf: %.c start.S
 	$(CC) $(CFLAGS) $(LDFLAGS) start.S $< -o $@
 
+# fp.c is the exception to -fno-builtin: there the whole point is that
+# __builtin_sqrt and friends become INSTRUCTIONS, and -fno-builtin turns them
+# into calls to a libm this freestanding build does not have.  -fno-math-errno
+# is what lets the compiler use the instruction rather than a call that can set
+# errno.
+FPFLAGS = -B$(GCCEXEC) -march=$(ARCH) -mabi=$(ABI) -mcmodel=medany \
+          -msmall-data-limit=0 -O1 -ffreestanding -ffp-contract=off \
+          -fno-math-errno -Wall -Wextra
+fp.elf: fp.c start.S
+	$(CC) $(FPFLAGS) $(LDFLAGS) start.S fp.c -o $@
+
 %.dis: %.elf
 	$(OBJDUMP) -d $< > $@
+
+# `run' is the self-checking tests; `diff' is the FP oracle.  Both, in order:
+check: run diff
 
 run: $(ELFS)
 	@for e in $(ELFS); do \
@@ -53,7 +68,20 @@ run: $(ELFS)
 	  $(GEM5) $(RUNCFG) $$e 2>&1 | grep -E "Exiting|panic|fatal|warn: LVX|^rv"; \
 	done
 
-clean:
-	rm -f *.elf *.dis
+# The differential FP check: the same fp.c built for RV64 and for the host, run
+# on both, compared word for word by fpdiff.py.  -ffp-contract=off on both sides
+# so neither compiler fuses a multiply-add the other does not, and
+# -fno-math-errno so the FP calls in the program become instructions rather than
+# calls to a libm the freestanding side does not have.
+fp.host: fp.c
+	$(HOSTCC) -DHOST -O1 -ffp-contract=off -fno-math-errno -Wall $< -o $@ -lm
 
-.PHONY: all run clean
+diff: fp.elf fp.host
+	@./fp.host > fp.host.out
+	@$(GEM5) $(RUNCFG) fp.elf 2>/dev/null > fp.iss.out
+	@python3 fpdiff.py fp.host.out fp.iss.out fp.elf
+
+clean:
+	rm -f *.elf *.dis *.host *.out *.raw
+
+.PHONY: all check run diff clean

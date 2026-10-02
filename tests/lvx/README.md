@@ -199,14 +199,39 @@ oracle), then `spike` (the stronger one).
   would read `nothing` three times.  907 of its 3037 flag words are non-zero,
   covering NX, NX+UF, NX+OF, DZ and NV, so the comparison has teeth throughout
   and not only on the compares.
+- `zfa` -> `zfa: identical to spike, 448 words`.  Zfa's `fround` and
+  `froundnx`, which are **not** a second implementation of anything: they are
+  the native LVX `FROUND*` and `FRINT*` carrying a RISC-V encoding, the way
+  Zicsr's `csrrw` is the native `CSRRW` under `RVZI_CSRR`.  So what this
+  checks is that the second encoding reaches the same behaviour and the two
+  personalities cannot drift.
+
+  The pair differs in one flag and nothing else, so the measured table is
+  where the test earns its keep — same value from both, and NX is the only
+  column that moves:
+
+  | input | mode | `fround.d` | flags | `froundnx.d` | flags |
+  |---|---|---|---|---|---|
+  | 2.5 | rne | 2.0 | — | 2.0 | NX |
+  | 2.5 | rup | 3.0 | — | 3.0 | NX |
+  | −2.5 | rdn | −3.0 | — | −3.0 | NX |
+  | −2.5 | rmm | −3.0 | — | −3.0 | NX |
+  | 2.0 | rne | 2.0 | — | 2.0 | — |
+  | sNaN | rne | NaN | NV | NaN | NV |
+
+  The instructions are written with `.insn`, because the installed binutils is
+  2.35.1 and predates Zfa — the encoding is still the encoding, and Spike
+  knows the mnemonics.  Note `SPIKE_ISA` is `rv64imafd_zfa`: without the `_zfa`
+  Spike refuses the word rather than executing it.
 - `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
   port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
   and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register
   read is unsigned at its container width, so `bgez` with -1 in the register
   branched as if -1 >= 0. Only a negative operand shows it.
 
-The RV instruction set is now **all of RV64G**: I, M, A, F, D, Zicsr and
-Zifencei, 165 opcodes.  What is still missing is above the ISA -- traps,
+The RV instruction set is now **all of RV64G**, plus the first two
+instructions of **Zfa**: I, M, A, F, D, Zicsr, Zifencei, and Zfa's
+`fround`/`froundnx` at both widths.  What is still missing is above the ISA -- traps,
 interrupts, PMP, more than one hart -- which `docs/riscv-mode.md` in `lvx-csw`
 tracks as milestones 2 and 3.  Not ported, deliberately: the B extension,
 Zacas, Zabha, Zicbo and Zicond, which KV4's material also carries and the

@@ -68,6 +68,14 @@ fpflags.elf: fpflags.c start.S
 fpflags.spike.elf: fpflags.c start_spike.S htif.c
 	$(CC) $(FPFLAGS) $(LDFLAGS) start_spike.S htif.c fpflags.c -o $@
 
+# Zfa, which the installed binutils (2.35.1) predates -- the instructions are
+# written with .insn, so only Spike has to know the mnemonics, and it does.
+zfa.elf: zfa.c start.S
+	$(CC) $(FPFLAGS) $(LDFLAGS) start.S zfa.c -o $@
+
+zfa.spike.elf: zfa.c start_spike.S htif.c
+	$(CC) $(FPFLAGS) $(LDFLAGS) start_spike.S htif.c zfa.c -o $@
+
 %.dis: %.elf
 	$(OBJDUMP) -d $< > $@
 
@@ -99,7 +107,7 @@ diff: fp.elf fp.host
 # needs no different link address.
 SPIKEDIR  ?= $(CURDIR)/../../../../spike-build
 SPIKE     ?= $(SPIKEDIR)/spike
-SPIKE_ISA ?= rv64imafd
+SPIKE_ISA ?= rv64imafd_zfa
 # Spike runs dtc at startup, and it is unpacked beside it rather than installed
 # (same reason as the RISC-V toolchain: no root here), so the recipe puts it on
 # PATH.  Without it: "Failed to run dtc: No such file or directory".
@@ -113,7 +121,7 @@ SPIKE_MEM ?= 0x8000:0x1ff7000
 # Two tests go through Spike: fp (results, the same program the host oracle
 # runs) and fpflags (results AND the fflags each operation raised, which only
 # Spike can be asked for -- and the reason this oracle exists).
-SPIKE_TESTS = fp fpflags
+SPIKE_TESTS = fp fpflags zfa
 
 spike: $(SPIKE_TESTS:%=%.spike.elf) $(SPIKE_TESTS:%=%.elf)
 	@for t in $(SPIKE_TESTS); do \

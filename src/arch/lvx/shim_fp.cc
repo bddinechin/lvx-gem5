@@ -27,7 +27,10 @@
  *   LVX fW_min/fW_max       == RISC-V FMINM/FMAXM (Zfa; IEEE minimum/maximum:
  *       NaN-PROPAGATING -- either operand NaN yields canonical NaN, still raising
  *       invalid on a signaling NaN).
- * fW_rint is fW_roundToInt with exact=true (RISC-V FROUNDNX: raises inexact).
+ * fW_rint is fW_roundToInt with exact=true (RISC-V FROUNDNX: raises inexact);
+ *       fW_round is the same with exact=false (RISC-V FROUND, C's nearbyint),
+ *       which is why its tuple has no inexact element to return -- the whole
+ *       difference between the two instructions is that one boolean.
  * Float->int saturates the RISC-V way (NaN/+ovf -> INT_MAX, -ovf -> INT_MIN;
  * unsigned NaN/+ovf -> UINT_MAX, negative -> 0), with SoftFloat's `exact'
  * argument true, as Spike's fcvt_w_d passes it, so an inexact conversion
@@ -242,6 +245,13 @@ Behavior_f##W##_rint(void * /*self*/, uint8_t rm, uint64_t a)                  \
     sfBegin(rm);                                                              \
     float##W##_t r = f##W##_roundToInt(fp##W(a), softfloat_roundingMode, true);\
     return Tuple_##W##_1_1{ r.v, flagIO(), flagIN() };                        \
+}                                                                              \
+Tuple_##W##_1                                                                   \
+Behavior_f##W##_round(void * /*self*/, uint8_t rm, uint64_t a)                 \
+{                                                                              \
+    sfBegin(rm);                                                              \
+    float##W##_t r = f##W##_roundToInt(fp##W(a), softfloat_roundingMode, false);\
+    return Tuple_##W##_1{ r.v, flagIO() };                                    \
 }
 
 // SoftFloat fW_min/fW_max are RISC-V FMIN/FMAX (minimumNumber/maximumNumber:

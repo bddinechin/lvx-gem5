@@ -57,6 +57,27 @@ byte size) via `--debug-flags=LvxDecode`.
   were a narrower follow-on gap the arithmetic fix above didn't cover --
   see the file's own comments.
 
+## Round-to-integral, and the flag that separates the two instructions
+- `fround` → `code=10`.  `FROUND*` is round-to-integral *without* signalling
+  inexact, beside `FRINT*`, which signals it: IEEE-754's roundToIntegral and
+  roundToIntegralExact, C's `nearbyint` and `rint`, RISC-V Zfa's `fround` and
+  `froundnx`.  The only difference between the two instructions is that one
+  flag, so the only test that tells them apart is one that reads `$cs` —
+  checks 1 and 2 are the same value through both, with `fflags` read after
+  each.
+
+  Checks 5–8 are the directed modifiers, which are the point of the new
+  instruction: C requires `nearbyint`, `floor`, `ceil`, `trunc`, `round` and
+  `roundeven` to leave the inexact flag alone, so none of the six could be
+  built from `FRINT*` — lvx-gcc's `scalar.md` said exactly that and provided
+  only `rint()`, and `roundeven` was a ten-instruction emulation that saved
+  `$cs`, converted out to an integer and back, and restored it.  The full
+  optab mapping is in `lvx-csw/docs/lvx-codegen.md` section 3b.
+
+  `fflags` is reached with the RISC-V CSR instructions, which are an atomic
+  self-swap: `csrrw $rX = 1` writes `$rX` into `fflags` and leaves the old
+  value in `$rX`; `csrrs $rX = 1` with `$rX` zero reads it without changing it.
+
 ## System-call regression test
 - `scall` → `code=0` — the SE-mode syscall shim (`Behavior_syscall` in
   `src/arch/lvx/shim.cc`).  Written in C rather than assembly, since the point

@@ -407,6 +407,60 @@ FP_FAST(32)  FP_FAST(64)   // reciprocal / rsqrt seeds (RISC-V vfrec7/vfrsqrt7)
 // f64 <-> integer.
 FP_TO_INT(64, 32, i, int_fast32_t)   FP_TO_INT(64, 32, ui, uint_fast32_t)
 FP_TO_INT(64, 64, i, int_fast64_t)   FP_TO_INT(64, 64, ui, uint_fast64_t)
+
+// FCVTMOD.W.D (Zfa): double -> signed word, rounding toward zero, and MODULO
+// 2^32 rather than saturating -- which is the whole difference from
+// f64_to_i32, and why it cannot be SoftFloat's conversion with a flag.  There
+// is no SoftFloat primitive for it; this is Spike's fcvtmod_w_d.h, whose
+// arithmetic is done on the raw fields because the point is the bits that fall
+// off the top.
+//
+// The result is the low 32 bits of the mathematical value; an infinite or NaN
+// operand gives zero.  Invalid is raised for those and for an out-of-range
+// finite operand (and takes precedence over inexact, which is why the
+// out-of-range case clears it); inexact for a fraction that was discarded.
+Tuple_32_1_1
+Behavior_f64_to_i32_mod(void * /*self*/, uint64_t a)
+{
+    uint32_t sign = (uint32_t)(a >> 63);
+    uint32_t exp  = (uint32_t)((a >> 52) & 0x7ff);
+    uint64_t frac = a & UINT64_C(0x000fffffffffffff);
+
+    bool inexact = false;
+    bool invalid = false;
+
+    if (exp == 0) {                         // zero or subnormal: all fraction
+        inexact = (frac != 0);
+        frac = 0;
+    } else if (exp == 0x7ff) {              // infinity or NaN
+        invalid = true;
+        frac = 0;
+    } else {
+        int trueExp = (int)exp - 1023;
+        int shift = trueExp - 52;
+        frac |= UINT64_C(1) << 52;          // restore the implicit bit
+        if (shift >= 64) {
+            frac = 0;                       // shifted out entirely
+        } else if (shift >= 0) {
+            frac <<= shift;                 // large: shift the fraction up
+        } else if (shift > -64) {
+            inexact = (frac << (64 + shift)) != 0;   // note what falls off
+            frac >>= -shift;
+        } else {
+            frac = 0;
+            inexact = true;
+        }
+        if (trueExp > 31 ||
+            frac > (sign ? UINT64_C(0x80000000) : UINT64_C(0x7fffffff))) {
+            invalid = true;
+            inexact = false;                // invalid takes precedence
+        }
+        if (sign)
+            frac = (uint64_t)(-(int64_t)frac);
+    }
+
+    return Tuple_32_1_1{ (uint32_t)frac, (uint8_t)invalid, (uint8_t)inexact };
+}
 INT_TO_FP(i, 32, 64, int32_t)   INT_TO_FP(ui, 32, 64, uint32_t)
 INT_TO_FP(i, 64, 64, int64_t)   INT_TO_FP(ui, 64, 64, uint64_t)
 

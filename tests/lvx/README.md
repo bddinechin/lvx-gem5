@@ -199,7 +199,7 @@ oracle), then `spike` (the stronger one).
   would read `nothing` three times.  907 of its 3037 flag words are non-zero,
   covering NX, NX+UF, NX+OF, DZ and NV, so the comparison has teeth throughout
   and not only on the compares.
-- `zfa` -> `zfa: identical to spike, 448 words`.  Zfa's `fround` and
+- `zfa` -> `zfa: identical to spike, 4108 words`.  Zfa's `fround` and
   `froundnx`, which are **not** a second implementation of anything: they are
   the native LVX `FROUND*` and `FRINT*` carrying a RISC-V encoding, the way
   Zicsr's `csrrw` is the native `CSRRW` under `RVZI_CSRR`.  So what this
@@ -218,6 +218,32 @@ oracle), then `spike` (the stronger one).
   | −2.5 | rmm | −3.0 | — | −3.0 | NX |
   | 2.0 | rne | 2.0 | — | 2.0 | — |
   | sNaN | rne | NaN | NV | NaN | NV |
+
+  It now covers **all of Zfa for RV64 F+D**, and what is worth checking about
+  each is how it differs from the base instruction it sits beside — which the
+  measured data shows:
+
+  | | the Zfa one does | the base one does |
+  |---|---|---|
+  | `fminm.d(qNaN, 2.0)` | canonical NaN, no flag | `fmin.d` returns 2.0 |
+  | `fminm.d(sNaN, 2.0)` | canonical NaN, NV | same |
+  | `fltq.d(qNaN, 2.0)` | 0, **no flag** | `flt.d` raises NV |
+  | `fcvtmod.w.d(2^31)` | −2147483648, wrapped | `fcvt.w.d` saturates to 2^31−1 |
+  | `fcvtmod.w.d(2^32)` | 0, wrapped | saturates to 2^31−1 |
+  | `fli.d` index 0 / 16 / 31 | −1.0 / 1.0 / canonical NaN | — |
+
+  `fminm`/`fmaxm` and `fltq`/`fleq` are the native LVX `FMIN*`/`FMAX*` and the
+  quiet `FCOMP*` re-encoded; `fli` and `fcvtmod.w.d` are RISC-V-only, having no
+  native counterpart.  `fli`'s immediate lives in the *rs1 field*, so it cannot
+  be a compiler-allocated operand — each of the 32 constants needs its own
+  `.insn` with the index written as a register token, hence the list rather
+  than a loop.
+
+  Spike caught a real bug here that no self-checking test of mine would have:
+  `fcvtmod.w.d` was not sign-extending its 32-bit result into the 64-bit
+  destination (Spike's `sext32(frac)`), so four of 4108 words differed and all
+  four were the high half.  A test written from my own understanding would have
+  encoded the same mistake in its expected values.
 
   The instructions are written with `.insn`, because the installed binutils is
   2.35.1 and predates Zfa — the encoding is still the encoding, and Spike

@@ -23,6 +23,10 @@ namespace
 {
 // kv4-v1 ABI: $r12 is the stack pointer.
 constexpr RegIndex StackPointerReg = 12;
+// RISC-V ABI: x2 is the stack pointer, and ADR-0007 puts x2 at GRS 2.  The two
+// personalities genuinely disagree here -- GRS 12 is x12, which is `a2' to a
+// RISC-V program -- so entry has to pick by the image's arch.
+constexpr RegIndex RvStackPointerReg = 2;
 constexpr Addr PageBytes = 4096;
 } // anonymous namespace
 
@@ -60,14 +64,16 @@ Process::initState()
     memState->setStackMin(sp);
     allocateMem(roundDown(sp, PageBytes), PageBytes);
 
-    ThreadContext *tc = system->threads[contextIds[0]];
-    tc->setReg(intRegClass[StackPointerReg], sp);
-
     // RV64G personality: the loader tags an EM_RISCV image as LvxRv64, and
     // PCState.rv selects the RISC-V fetch/decode path (mirrors Arm/Thumb). A
     // native LVX (EM_LVX) image starts with rv clear -- the VLIW bundle path.
+    const bool rv = objFile->getArch() == loader::LvxRv64;
+
+    ThreadContext *tc = system->threads[contextIds[0]];
+    tc->setReg(intRegClass[rv ? RvStackPointerReg : StackPointerReg], sp);
+
     PCState pc(getStartPC());
-    pc.rv(objFile->getArch() == loader::LvxRv64);
+    pc.rv(rv);
     tc->pcState(pc);
 }
 

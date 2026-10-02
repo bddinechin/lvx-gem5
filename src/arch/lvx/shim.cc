@@ -1836,6 +1836,16 @@ Behavior_barrier(void * /*self*/)
 {
 }
 
+// The RISC-V FENCE.  Its two arguments are the predecessor and successor
+// ordering sets (the `ordering' modifier: I/O/R/W in each), which is more than
+// the native MEM_fence says -- and still nothing to do here, for the same
+// reason: AtomicSimpleCPU executes one instruction at a time, in program order,
+// against memory that has no reordering to constrain.
+void
+Behavior_MEM_rv_fence(void * /*self*/, uint8_t /*pred*/, uint8_t /*succ*/)
+{
+}
+
 // Guarded execution prefix.
 //
 // GUARD sits in a BCU slot and predicates other units of the same bundle:

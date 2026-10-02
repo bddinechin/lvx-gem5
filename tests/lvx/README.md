@@ -84,29 +84,33 @@ byte size) via `--debug-flags=LvxDecode`.
 
 ## RV64G personality (the `PS.RV` mode)
 
-- `rv_hello` → `hello from rv64` on stdout, then `code=42`.  The first program
-  the ISS executes in RISC-V mode: it proves the whole entry path at once —
-  an `EM_RISCV` ELF claimed as `loader::LvxRv64`, `PCState.rv()` set from it,
-  `moreBytes` fetching one fixed 32-bit word instead of a parallel-bit bundle,
-  `Decode_Decoding_riscv` dispatching it, and `ECALL` reaching
-  `Behavior_rv_syscall` with the RISC-V ABI (number in `a7`, arguments in
-  `a0..a5`, result in `a0`).  `write` exercises the argument registers and
-  target memory, and the exit status is the byte count it *returned* plus 26,
-  so the result half of the ABI is proved as well as the argument half — and
-  the `add` means a `code=42` cannot come from a decode that silently did
-  nothing.
+In `rv/`, built by the upstream `riscv64-unknown-elf` toolchain (ADR-0004: LVX
+assembles and compiles no RISC-V) -- see `../../../riscv-toolchain/README.md`
+for where that comes from and the one trap in using it.
 
-  There is **no RISC-V assembler here** (ADR-0004: the upstream
-  `riscv64-unknown-elf` toolchain is the one that builds RISC-V code, and it is
-  not installed on this machine), so the ELF is hand-encoded by
-  `tests/lvx/mkrv.py` — `python3 tests/lvx/mkrv.py` rewrites `rv_hello.elf`.
-  When that toolchain arrives, write these as `.s` files and delete the script.
+```bash
+make -C tests/lvx/rv run                                   # on gem5-lvx1.opt
+make -C tests/lvx/rv run GEM5=$PWD/build/gem5-lvx2.opt     # on gem5-lvx2.opt
+```
 
-  ```bash
-  python3 tests/lvx/mkrv.py
-  build/gem5-lvx1.opt tests/lvx/run_lvx.py tests/lvx/rv_hello.elf
-  ```
+- `rv64i` -> `rv64i ok` on stdout, then `code=0`. Nine checks over the base
+  integer set: the W forms and their sign extension from bit 31, the logical
+  ops, the 64- and 32-bit shifts and their count masks, SLT/SLTU, all six
+  branches, the loads and stores at every width signed and unsigned, a counted
+  loop with an indexed store, and a call that reaches a static address through
+  LUI/AUIPC and returns.  Each check returns its own number, so the exit code
+  names the first thing that broke.  It also proves the whole entry path at
+  once -- an `EM_RISCV` ELF claimed as `loader::LvxRv64`, `PCState.rv()` set
+  from it, `moreBytes` fetching one fixed 32-bit word rather than a
+  parallel-bit bundle, `Decode_Decoding_riscv` dispatching it, and `ecall`
+  reaching `Behavior_rv_syscall` with the RISC-V ABI (number in `a7`,
+  arguments in `a0..a5`, result in `a0`).
+- `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
+  port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
+  and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register
+  read is unsigned at its container width, so `bgez` with -1 in the register
+  branched as if -1 >= 0. Only a negative operand shows it.
 
-  The RV instruction set is a **seed**, not a port: `lui`, `addi`, `add`,
-  `ecall`, `ebreak` and nothing else (`docs/riscv-mode.md` in `lvx-csw` has the
-  gap list).  A program using anything more decodes to `Opcode__UNDEF`.
+The RV instruction set is **RV64I so far**, not all of RV64G: no M, A, F, D,
+Zicsr or Zifencei yet (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so
+a program that multiplies or uses a float decodes to `Opcode__UNDEF`.

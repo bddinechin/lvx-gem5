@@ -93,7 +93,8 @@ make -C tests/lvx/rv check                                 # on gem5-lvx1.opt
 make -C tests/lvx/rv check GEM5=$PWD/build/gem5-lvx2.opt   # on gem5-lvx2.opt
 ```
 
-`check` is `run` (the self-checking programs) then `diff` (the FP oracle).
+`check` is `run` (the self-checking programs), then `diff` (the host FP
+oracle), then `spike` (the stronger one).
 
 - `rv64i` -> `rv64i ok` on stdout, then `code=0`. Nine checks over the base
   integer set: the W forms and their sign extension from bit 31, the logical
@@ -152,6 +153,31 @@ make -C tests/lvx/rv check GEM5=$PWD/build/gem5-lvx2.opt   # on gem5-lvx2.opt
   So the host side computes RISC-V's rule for those three, rather than the test
   carrying an exclusion list -- the comparison stays exact and the three
   divergences are stated in code.
+- `fpflags` -> `fpflags: identical to spike, 6074 words`, and it is the test
+  the host oracle could not be: it emits a PAIR per operation, the result bits
+  and the **fflags** that operation raised.  That was the weakest point of the
+  F/D port -- every body was rewritten and every flag tuple re-derived, and a
+  tuple element in the wrong position is invisible to any test that only looks
+  at results.  Compared against **Spike**, which has the flags; see
+  `../../../spike-build/README.md` for how it is built and the three ways
+  running a test under it differs from gem5.
+
+  Its inputs are chosen for the flags rather than the values, and the two that
+  matter most are the ones `fp.c` does not have at all: a quiet NaN and a
+  **signalling** NaN.  They are what separates the quiet comparison from the
+  signalling ones, and the measured table is the proof the distinction is live
+  rather than vacuously matching:
+
+  | a | `feq` | `flt` | `fle` |
+  |---|---|---|---|
+  | quiet NaN | *nothing* | NV | NV |
+  | signalling NaN | NV | NV | NV |
+  | 1.0 | nothing | nothing | nothing |
+
+  Had `floatcomp` stayed quiet-only, as it was before the port, the first row
+  would read `nothing` three times.  907 of its 3037 flag words are non-zero,
+  covering NX, NX+UF, NX+OF, DZ and NV, so the comparison has teeth throughout
+  and not only on the compares.
 - `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
   port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
   and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register

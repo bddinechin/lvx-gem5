@@ -56,11 +56,23 @@ FPFLAGS = -B$(GCCEXEC) -march=$(ARCH) -mabi=$(ABI) -mcmodel=medany \
 fp.elf: fp.c start.S
 	$(CC) $(FPFLAGS) $(LDFLAGS) start.S fp.c -o $@
 
+# The Spike build of the same fp.c: HTIF instead of ecall for the output, and
+# its own stack, because Spike runs it bare-metal in M-mode.  Same -Ttext, so
+# the two ELFs differ only in the output path.
+fp.spike.elf: fp.c start_spike.S htif.c
+	$(CC) $(FPFLAGS) $(LDFLAGS) start_spike.S htif.c fp.c -o $@
+
+fpflags.elf: fpflags.c start.S
+	$(CC) $(FPFLAGS) $(LDFLAGS) start.S fpflags.c -o $@
+
+fpflags.spike.elf: fpflags.c start_spike.S htif.c
+	$(CC) $(FPFLAGS) $(LDFLAGS) start_spike.S htif.c fpflags.c -o $@
+
 %.dis: %.elf
 	$(OBJDUMP) -d $< > $@
 
 # `run' is the self-checking tests; `diff' is the FP oracle.  Both, in order:
-check: run diff
+check: run diff spike
 
 run: $(ELFS)
 	@for e in $(ELFS); do \
@@ -81,7 +93,38 @@ diff: fp.elf fp.host
 	@$(GEM5) $(RUNCFG) fp.elf 2>/dev/null > fp.iss.out
 	@python3 fpdiff.py fp.host.out fp.iss.out fp.elf
 
+# The stronger oracle: Spike, which is the reference implementation of the
+# semantics this port was written against -- and, unlike the host FPU, it has
+# the same fflags.  -m maps memory where the ELF is linked, so the Spike build
+# needs no different link address.
+SPIKEDIR  ?= $(CURDIR)/../../../../spike-build
+SPIKE     ?= $(SPIKEDIR)/spike
+SPIKE_ISA ?= rv64imafd
+# Spike runs dtc at startup, and it is unpacked beside it rather than installed
+# (same reason as the RISC-V toolchain: no root here), so the recipe puts it on
+# PATH.  Without it: "Failed to run dtc: No such file or directory".
+SPIKE_PATH ?= $(SPIKEDIR)/tools/usr/bin
+# Memory for the region the test is linked into, with slack BELOW the text: the
+# ELF's first segment starts a page under _start, because the program headers
+# are mapped with it.  The top stays under the CLINT at 0x2000000, or Spike
+# refuses with "devices at ... overlap".
+SPIKE_MEM ?= 0x8000:0x1ff7000
+
+# Two tests go through Spike: fp (results, the same program the host oracle
+# runs) and fpflags (results AND the fflags each operation raised, which only
+# Spike can be asked for -- and the reason this oracle exists).
+SPIKE_TESTS = fp fpflags
+
+spike: $(SPIKE_TESTS:%=%.spike.elf) $(SPIKE_TESTS:%=%.elf)
+	@for t in $(SPIKE_TESTS); do \
+	  PATH=$(SPIKE_PATH):$$PATH $(SPIKE) --isa=$(SPIKE_ISA) -m$(SPIKE_MEM) \
+	    $$t.spike.elf > $$t.spike.out; \
+	  $(GEM5) $(RUNCFG) $$t.elf 2>/dev/null > $$t.iss.out; \
+	  python3 fpdiff.py $$t.spike.out $$t.iss.out $$t.elf --raw-reference \
+	    --name $$t || exit 1; \
+	done
+
 clean:
 	rm -f *.elf *.dis *.host *.out *.raw
 
-.PHONY: all check run diff clean
+.PHONY: all check run diff spike clean

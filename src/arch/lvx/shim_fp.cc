@@ -29,9 +29,11 @@
  *       invalid on a signaling NaN).
  * fW_rint is fW_roundToInt with exact=true (RISC-V FROUNDNX: raises inexact).
  * Float->int saturates the RISC-V way (NaN/+ovf -> INT_MAX, -ovf -> INT_MIN;
- * unsigned NaN/+ovf -> UINT_MAX, negative -> 0). floatcomp threads no exception
- * flags (bare bool result, like the integer compares), so it raises no invalid
- * on a NaN -- a limitation of the helper signature, not the boolean result.
+ * unsigned NaN/+ovf -> UINT_MAX, negative -> 0), with SoftFloat's `exact'
+ * argument true, as Spike's fcvt_w_d passes it, so an inexact conversion
+ * raises NX. floatcomp DOES thread a flag -- {predicate, NV} -- which this
+ * paragraph used to deny; the tuple was added later and the sentence was not
+ * revisited. See FP_COMPARE below for which NaN raises it.
  *
  * These are PURE functions of (rounding mode, raw IEEE-754 bits). The generated
  * execute body owns all architectural FP state: it resolves the rounding mode

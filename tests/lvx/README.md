@@ -115,14 +115,24 @@ make -C tests/lvx/rv run GEM5=$PWD/build/gem5-lvx2.opt     # on gem5-lvx2.opt
   loop that either never terminates or never stores.  Check 3 is the negative
   dividend that caught both of KV4's divide operators being the floored pair
   (lvx-mds 7b9b785).
+- `rv64csr` -> `rv64csr ok`, then `code=0`. Zicsr and Zifencei in eight checks
+  -- and as much a test of the *sharing* as of the encoding, since the RISC-V
+  `csrrw`/`csrrs`/`csrrc` are the native LVX instructions under a second
+  format, over the same BitAlias dispatch (fcsr/fflags/frm onto CS,
+  mepc/mtvec/mtval/mscratch onto SPC/EV/EA/SR, the machine IDs reading zero).
+  Check 4 is the immediate forms with bit 4 set, which a sign-extended 5-bit
+  immediate would turn into all ones; check 7 is that `x0` survived check 6's
+  six `csrw`s -- `csrw csr, rs` *is* `csrrw x0, csr, rs`, and the shared
+  dispatch commits unconditionally, so x0 has to be hardwired in the shim
+  rather than guarded by the format.
 - `slt` -> `code=7`, a bitmap rather than a pass count. It pins the one bug the
   port introduced: KV4's branch conditions were typed helpers (`comp64_lt`),
   and porting them to LVX's `(LT a b)` dropped the type -- a Behavior register
   read is unsigned at its container width, so `bgez` with -1 in the register
   branched as if -1 >= 0. Only a negative operand shows it.
 
-The RV instruction set is **RV64IMA so far**, not all of RV64G: no F, D,
-Zicsr or Zifencei yet (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so a
-program that uses a float decodes to `Opcode__UNDEF`.  The tests are compiled
-`-march=rv64imafd` even so -- the ABI requires D -- and simply do not use the
-parts that are missing.
+The RV instruction set is **RV64IMA + Zicsr + Zifencei so far**, which is
+RV64G short of F and D (`docs/riscv-mode.md` in `lvx-csw` tracks the gap), so
+a program that uses a float decodes to `Opcode__UNDEF`.  The tests are
+compiled `-march=rv64imafd` even so -- the ABI requires D -- and simply do not
+use the parts that are missing.

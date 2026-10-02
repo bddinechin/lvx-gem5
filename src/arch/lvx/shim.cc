@@ -502,13 +502,23 @@ Behavior_operandFromRegFile_GPR(void *self, unsigned /*stage*/, int /*rank*/,
 
 // RV_BIR (RISC-V x0-x31) aliases the native GPR/GRS storage (ADR-0007), so its
 // operand accessors are identical to GPR's -- the decoded register_id is already
-// the 0..31 index (decoded - Register_lvx_X0).
+// the 0..31 index (decoded - Register_lvx_X0) -- with one architectural
+// difference: x0 reads as zero and discards writes, where the native $r0 is an
+// ordinary register.
+//
+// Most RISC-V formats guard the write themselves ("if %1 is not x0, commit"),
+// because that is where KV4 put it.  Stating it here as well is not belt and
+// braces: `csrw csr, rs' IS `csrrw x0, csr, rs', and the CSR dispatch those
+// share with the native instruction commits unconditionally -- so without this,
+// the single commonest way to write a CSR would also clobber x0, and every
+// later read of it would return the CSR's old value.
 void
 Behavior_operandFromRegFile_RV_BIR(void *self, unsigned /*stage*/, int /*rank*/,
                                    int opnd_idx, int register_id)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
-    ctx->operands[opnd_idx].value = int256_fromUInt64(readGpr(ctx->tc, register_id));
+    ctx->operands[opnd_idx].value =
+        int256_fromUInt64(register_id == 0 ? 0 : readGpr(ctx->tc, register_id));
     ctx->operands[opnd_idx].flags = AccessNone;
 }
 
@@ -519,6 +529,8 @@ Behavior_operandToRegFile_RV_BIR(void *self, unsigned /*stage*/, int /*rank*/,
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     if (!(ctx->operands[opnd_idx].flags & AccessWrite))
         return; // not written by execute: nothing to commit
+    if (register_id == 0)
+        return; // x0 is hardwired zero
     commitGpr(ctx, register_id, ctx->operands[opnd_idx].value.dwords[0]);
 }
 
@@ -1891,6 +1903,15 @@ Behavior_barrier(void * /*self*/)
 // against memory that has no reordering to constrain.
 void
 Behavior_MEM_rv_fence(void * /*self*/, uint8_t /*pred*/, uint8_t /*succ*/)
+{
+}
+
+// FENCE.I, which makes the hart's own stores visible to its instruction fetch.
+// There is nothing to invalidate: the ISS decodes from memory on every fetch,
+// so self-modifying code is already coherent here.  (MEM_i1invals, the native
+// one, takes an address; this is the whole cache.)
+void
+Behavior_MEM_i1inval(void * /*self*/)
 {
 }
 

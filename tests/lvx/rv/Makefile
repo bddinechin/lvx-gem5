@@ -36,7 +36,7 @@ LDFLAGS = -nostdlib -nostartfiles -Wl,-Ttext=0x10000 -Wl,-e,_start
 GEM5   ?= $(CURDIR)/../../../build/gem5-lvx1.opt
 RUNCFG  = $(CURDIR)/../run_lvx.py
 
-TESTS = rv64i slt rv64ma
+TESTS = rv64i slt rv64ma rv64csr
 ELFS  = $(TESTS:%=%.elf)
 
 all: $(ELFS)

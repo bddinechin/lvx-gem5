@@ -66,6 +66,9 @@ void    Behavior_MEM_store(void *, uint64_t, int256_t, uint8_t, int256_t, uint8_
 /* RISC-V LR/SC.  Shaped like MEM_load/MEM_store plus the reservation:
  * load_reserve registers one on the address, store_conditional honours it and
  * returns 0 on success, 1 on failure (which is what SC.W/SC.D write to rd). */
+/* RISC-V FENCE.I: the whole instruction cache, where MEM_i1invals takes an
+ * address.  Nothing to do in an ISS that decodes from memory every fetch. */
+void Behavior_MEM_i1inval(void *);
 int256_t Behavior_MEM_load_reserve      (void *, uint64_t, int256_t, uint8_t, uint8_t);
 int256_t Behavior_MEM_store_conditional (void *, uint64_t, int256_t, uint8_t, uint64_t, uint8_t);
 int256_t Behavior_MEM_atomic_add (void *, uint64_t, int256_t, uint64_t, uint64_t, uint8_t);

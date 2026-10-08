@@ -31,6 +31,11 @@ typedef void (*Behavior)(void *, OperandDecoded *, Processor);
 
 // Panic target for not-yet-implemented HELPERs (Phase 1 link; real impls #8).
 // noreturn lets one stub body satisfy every helper return type.
-void lvx_behavior_unimpl(void) __attribute__((noreturn));
+//
+// Takes the helper's name, which BE/GEM5's helper-stubs.pl passes: the body is
+// shared by every stub, so without it the diagnostic could say only that *some*
+// helper was missing. It used to be a bare __builtin_trap() -- SIGILL with no
+// output at all, which cost three investigations before gdb named the frame.
+void lvx_behavior_unimpl(const char *helper) __attribute__((noreturn));
 
 #endif // __ARCH_LVX_BEHAVIOR_RT_H__

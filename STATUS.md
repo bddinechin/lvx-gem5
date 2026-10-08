@@ -51,7 +51,12 @@ lvx-mds/build_lvx/BE/GEM5 install`.
 ## Behavior helpers implemented in the shim
 
 The generated bodies call operator helpers; those not implemented are panic stubs
-(`helper_stubs.inc`, `lvx_behavior_unimpl` → trap). A helper is implemented by
+(`helper_stubs.inc`, `lvx_behavior_unimpl`). Reaching one now prints *which*
+helper is missing and how to implement it, then `abort()`s. It used to be a bare
+`__builtin_trap()` — a `ud2`, so SIGILL with no message, no PC and an empty
+`stats.txt`; the only clue was the `.cold` section of whichever body had inlined
+it, which is why the `wfxl` case below was misdiagnosed as a compiler bug more
+than once. A helper is implemented by
 listing it in the `BE/GEM5` `shim-helpers` manifest (in `lvx-mds`) and defining
 `Behavior_<name>` in the shim — `helper-stubs.pl` then emits a prototype for it
 instead of a stub. Implemented:
@@ -84,37 +89,61 @@ instead of a stub. Implemented:
 
 ## Known gaps / next
 
-60 helpers remain panic stubs on `lvx_v2` (the superset core); the list below is
-the whole of it, grouped. Get the current inventory with:
+**25 helpers remain panic stubs on `lvx_v2`** (the superset core), 22 on `lvx_v1`
+— measured 2026-10-08 from `lvx-mds`'s `lvx-refs/BE/GEM5/<core>/helper_stubs.inc`,
+which is per core and independent of whichever core `generated/` currently holds.
+(35 stub *lines* on lvx_v2: a few helpers appear at more than one signature, so
+the grep below counts lines, not names.)
+
+This said 60, which was the sum of the groups below when they were written. Two
+groups have since been implemented in full and three are partly done, so the
+counts in them are upper bounds; each now says what actually remains. Get the
+live inventory with:
 
 ```sh
 grep -B0 lvx_behavior_unimpl src/arch/lvx/generated/helper_stubs.inc |
   grep -oE 'HELPER\([a-z0-9_]+\)'
 ```
 
-- **`wfxl`/`wfxm` — the one stub a hosted C program reaches.** newlib's `fenv`
-  implementation is plain C over `wfxl $cs`, so `fesetround`/`feclearexcept`
-  abort the simulator. This blocks all rounding-mode and exception-flag testing,
-  which is otherwise the only untested part of an FP surface that is complete and
-  RISC-V-conformant. **Highest-value stub to implement.** Note the implemented
-  `wfxl_check_access`/`wfxm_check_access` listed above are the permission checks,
-  not the operations themselves.
-- **Atomics beyond CAS** (12): `MEM_atomic_{add,and,eor,ior,max,maxu,min,minu,
+- **`wfxl`/`wfxm` — reachable from hand-written assembly only, as of
+  2026-10-08.** These are the general-purpose system-register field writes. Until
+  today they were *the* stub a hosted C program reached: newlib's `fenv` was plain
+  C over `wfxl $cs`, so `fesetround`/`feclearexcept` aborted the simulator and all
+  rounding-mode and exception-flag testing was blocked.
+  **That is fixed, and not by implementing this stub.** newlib now uses the ISA's
+  dedicated native accessors — `frrm`/`fsrm` for the rounding mode,
+  `frflags`/`fsflags` for the exception flags (format `BCU_CSR`,
+  `encoding: simple`; of that family only `csrrw`/`csrrs`/`csrrc` are *also*
+  RISC-V, so this is no RISC-V dependency). Their generated bodies call **no
+  helper at all**, so they need nothing here. Using a generic SFR write where a
+  dedicated instruction exists was the actual defect; see
+  `lvx-csw/validation/SIMDE.md` and lvx-newlib `d4a84ad`.
+  So these are **no longer the highest-value stub** — nothing in C reaches them —
+  but still worth implementing, since hand-written assembly touching `$cs` will
+  abort. Note the implemented `wfxl_check_access`/`wfxm_check_access` listed above
+  are the permission checks, not the operations themselves.
+- **Atomics beyond CAS** — ***all implemented, none remain*** (was 12): `MEM_atomic_{add,and,eor,ior,max,maxu,min,minu,
   swap,dus,load,store}` — the `ALADD*`/`ASWAP*` families. CAS is done, and GCC's
   `__atomic_fetch_add` expands without reaching these, so today they are only
   reachable from hand-written assembly.
-- **SIMD / vector helper bodies** (12): `blend`, `lanecond_{8,16,32}`,
+- **SIMD / vector helper bodies** — **5 remain** of 12 (`bits2bytes`,
+  `insert_64`, `join_64_x4`, `reflect_32`, `crc32_be_u32`; `blend`,
+  `lanecond_*` and `intcomp_*` are done): `blend`, `lanecond_{8,16,32}`,
   `intcomp_{8,16,128}`, `bits2bytes`, `insert_64`, `join_64_x4`, `reflect_32`,
   `crc32_be_u32`. Note GCC does not use `intcomp_128` — it expands `__int128`
   compares into 64-bit pieces, which `tests/lvx/diff/c/i128.c` pins.
-- **Cache and TLB maintenance** (17): `MEM_d{1inval,flushl,flushlsw,invall,
+- **Cache and TLB maintenance** — **7 remain** of 17 (`probetlb`, `readtlb`,
+  `writetlb`, `invaldtlb`, `invalitlb`, `dinvallsw_owner`, `mmi_owner`; the
+  `MEM_d*`/`MEM_i1inval*` family is done): `MEM_d{1inval,flushl,flushlsw,invall,
   invallsw,purgel,purgelsw,touchl}`, `MEM_i1inval{,s}`, `probetlb`, `readtlb`,
   `writetlb`, `invaldtlb`, `invalitlb`, `dinvallsw_owner`, `mmi_owner`. Bare-metal
   concerns with no SE-mode meaning.
-- **Privileged / system** (10): `rfe`, `waitit`, `idle`, `break`,
+- **Privileged / system** — **8 remain** of 10 (`throw_OPCODE` and
+  `throw_PRIVILEGE` are done): `rfe`, `waitit`, `idle`, `break`,
   `throw_OPCODE`, `throw_PRIVILEGE`, `syncgroup`, and the `rfe_owner`,
   `stop_owner`, `syncgroup_owner` variants — full-system, out of scope here.
-- **Complex FP** (3): `fmulc_32_32`/`ffmac_32_32`/`fconj_32_32` (FMULWC/FFMAWC,
+- **Complex FP** — **all 3 remain**, but the `lvx_v2`-only packed f16<->i16
+  conversions noted with them are ***implemented***: `fmulc_32_32`/`ffmac_32_32`/`fconj_32_32` (FMULWC/FFMAWC,
   both cores), plus the **`lvx_v2`-only packed f16↔i16 conversions** (4):
   `f16_to_i16`/`_ui16`, `i16_to_f16`/`ui16_to_f16`. All decompose into standard
   ops and are implementable RISC-V-conformantly.

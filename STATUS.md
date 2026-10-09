@@ -27,7 +27,18 @@ lvx-mds/build_lvx/BE/GEM5 install`.
 
 ## What works
 
-- Bundle de-bundling, IMMX/multi-syllable reassembly, per-instruction PC.
+- Bundle de-bundling, IMMX/multi-syllable reassembly, per-instruction PC, at
+  the full architectural bundle width of **18 syllables** -- the ten issue slots
+  plus IMMX's eight, i.e. `LVX_MAXBUNDLEWORDS`. That bound was 16 until
+  2026-10-09, two short because it had been derived by hand from eight issue
+  slots instead of ten, and overflow ended the bundle *while the parallel bit
+  still said more syllables followed*: a 17- or 18-syllable bundle executed as
+  two, one extra issue and one extra cycle, exit code 0, no diagnostic. Past 18
+  the words are not an LVX bundle at all and the decoder now panics naming the
+  fetch address. `tests/lvx/diff/check_bundle_syllables.sh` pins all of it,
+  including a negative control proving `simInsts` can see a split at all.
+  Note gas will not assemble such a bundle -- its resource table caps one near
+  15 syllables -- so the test splices the syllables itself.
 - Decode → fetch/execute/commit with bundle-boundary commit (read-all-then-
   write-all; the register-swap-in-a-bundle hazard is handled structurally).
 - Integer ALU, immediates (incl. >32-bit via IMMX), loads/stores, comparisons,

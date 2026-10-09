@@ -64,7 +64,10 @@ system.system_port = system.membus.cpu_side_ports
 
 system.workload = SEWorkload.init_compatible(elf)
 process = Process()
-process.cmd = [elf]
+# argv[0] is the ELF, and anything after the script's own argument is the
+# guest's.  The stack block that carries them is built by
+# LvxISA::Process::argsInit.
+process.cmd = [elf] + sys.argv[2:]
 cpu.workload = process
 cpu.createThreads()
 

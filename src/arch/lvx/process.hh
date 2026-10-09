@@ -12,16 +12,20 @@ namespace gem5
 namespace LvxISA
 {
 
-// Minimal LP64 SE-mode process: loads the ELF image, sets up a stack, and
-// starts a single thread at the ELF entry point with the stack pointer ($r12)
-// initialized. argv/env/auxv are not yet populated (freestanding programs);
-// TODO(#10+): full argsInit for hosted (newlib) programs.
+// LP64 SE-mode process: loads the ELF image, builds the initial process stack
+// (argc, argv, envp, auxv) and starts a single thread at the ELF entry with the
+// stack pointer initialized -- $r12 for a native image, x2 for an RV64G one.
 class Process : public gem5::Process
 {
   public:
     Process(const ProcessParams &params, loader::ObjectFile *objFile);
 
     void initState() override;
+
+  private:
+    // Build the initial stack frame the ABI hands to _start.  Sets the stack
+    // pointer and the PC, so it is the last thing initState does.
+    void argsInit(int pageSize);
 };
 
 } // namespace LvxISA

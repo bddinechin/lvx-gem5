@@ -25,9 +25,25 @@ typedef uint32_t MachInst;
 // LVX_MAXSYLLABLES == 3 (see include/opcode/lvx.h in lvx-binutils).
 inline constexpr unsigned MaxInstSyllables = 3;
 
-// A bundle holds up to 2 each of BCU/ALU/LSU/EXT instructions plus up to 8 IMMX
-// extension syllables; cap generously.
-inline constexpr unsigned MaxBundleSyllables = 16;
+// The ten issue slots: BCU0 BCU1 ALU0 ALU1 LSU0 LSU1 EXT0 EXT1 EXT2 EXT3.
+// LVX_MAXBUNDLEISSUE in lvx-binutils include/opcode/lvx.h, and the count the
+// Exu enum in static_inst.cc enumerates -- a static_assert there ties the two
+// together so they cannot drift.
+inline constexpr unsigned MaxBundleIssue = 10;
+
+// IMMX, the immediate-extension syllables: availability 8 in Resource.yml.
+inline constexpr unsigned MaxBundleImmx = 8;
+
+// So a bundle is at most 18 syllables -- one word per issue slot plus the
+// extension words -- which is LVX_MAXBUNDLEWORDS, the bound gas sizes its own
+// buffers from and the one bundle-size check it makes.
+//
+// This was 16, under a comment deriving it from "2 each of BCU/ALU/LSU/EXT
+// instructions plus up to 8 IMMX".  That arithmetic is right for eight issue
+// slots; LVX has ten, the two TINY slots being the ones it omits.  A derived
+// number written out by hand in a second place, which then went stale -- and
+// the way it failed was silent, see moreBytes() in decoder.cc.
+inline constexpr unsigned MaxBundleSyllables = MaxBundleIssue + MaxBundleImmx;
 
 // A fully-fetched LVX *bundle*: its syllables in binary order (parallel bit of
 // the last one is 0), plus the count. This is the decode key handed to Layer C,

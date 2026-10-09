@@ -51,7 +51,7 @@ class LvxStaticInst : public StaticInst
     ExtMachInst machInst;
     unsigned bundleBytes;
     unsigned numSubInsts = 0;
-    SubInst subInsts[MaxBundleSyllables];
+    SubInst subInsts[MaxBundleIssue];
 
     // Backing storage for the base class's _srcRegIdxPtr / _destRegIdxPtr,
     // populated in the constructor from the generated lvx_reg_deps table.

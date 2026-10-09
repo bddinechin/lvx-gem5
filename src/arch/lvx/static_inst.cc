@@ -46,6 +46,14 @@ enum Exu
     EXU_EXT0, EXU_EXT1, EXU_EXT2, EXU_EXT3, EXU__
 };
 
+// This enum and types.hh's MaxBundleIssue are the same ten issue slots counted
+// twice.  MaxBundleSyllables is derived from that count, so letting them drift
+// is how a bundle-size bound goes stale -- which is exactly what happened to
+// the 16 that MaxBundleSyllables used to be.
+static_assert(EXU__ == MaxBundleIssue,
+              "the Exu enum and MaxBundleIssue must agree: both are the "
+              "LVX issue slots, and the bundle syllable bound derives from it");
+
 inline unsigned steering(uint32_t s) { return (s >> 29) & 0x3; }
 inline unsigned exuTag(uint32_t s)   { return (s >> 27) & 0x3; }
 inline bool     parallelBit(uint32_t s) { return (s >> 31) & 0x1; }
@@ -156,7 +164,7 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
 
     // Emit instructions in issue order; assemble each one's syllable buffer
     // (opcode then its IMMX words) and decode opcode + operands.
-    for (int exu = 0; exu < EXU__ && numSubInsts < MaxBundleSyllables; exu++) {
+    for (int exu = 0; exu < EXU__ && numSubInsts < MaxBundleIssue; exu++) {
         IssuedInsn &ins = issued[exu];
         if (!ins.nsyll)
             continue;
@@ -276,7 +284,7 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     // any register write (commit) — VLIW parallel semantics.
     BundlePredication predication;
     BundleWriteLog writeLog;
-    BehaviorContext ctx[MaxBundleSyllables];
+    BehaviorContext ctx[MaxBundleIssue];
     for (unsigned i = 0; i < numSubInsts; i++) {
         ctx[i].reset(tc, base + subInsts[i].byteOffset, fallThrough);
         ctx[i].predication = &predication;

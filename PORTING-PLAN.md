@@ -39,8 +39,15 @@ The front-end must disentangle both, in order:
 - Bit 31 = **parallel bit**: 0 ⇒ last syllable in the bundle, else 1.
 - Bits 30–29 = **steering**: 0 BCU, 1 LSU, 2 ALU, 3 EXT.
 - **IMMX** (immediate-extension) syllables carry steering 0 with a 2-bit **tag** in bits 28–27 (0 ALU0, 1 ALU1, 2 LSU0, 3 LSU1) and a 27-bit payload.
-- 8 **issue slots**: BCU0/1, ALU0/1, LSU0/1, EXT0/1. Binary layout places main syllables in that fixed slot order; ALU/LSU IMMX syllables come **last** in the bundle (LSB payload first when two IMMX); a BCU offset-extension IMMX sits as the second syllable, right after its branch.
-- Up to 16 syllables accepted in a valid bundle (18 physical).
+- 10 **issue slots**: BCU0/1, ALU0/1, LSU0/1, EXT0/1/2/3. Binary layout places main syllables in that fixed slot order; ALU/LSU IMMX syllables come **last** in the bundle (LSB payload first when two IMMX); a BCU offset-extension IMMX sits as the second syllable, right after its branch.
+- Up to **18** syllables in a bundle: the 10 issue slots plus IMMX's availability of 8, which is `LVX_MAXBUNDLEWORDS`.
+
+  (This said "8 issue slots … up to 16 syllables accepted (18 physical)", and that
+  is where the ISS's `MaxBundleSyllables = 16` came from: 8 slots + 8 IMMX, with the
+  two TINY slots left out. The decoder then ended an over-long bundle while its
+  parallel bit still said more syllables followed, splitting it in two with no
+  diagnostic. Fixed 2026-10-09 — see `tests/lvx/diff/check_bundle_syllables.sh` and
+  `../docs/inconsistencies.md`.)
 
 ### De-bundling algorithm (front-end)
 

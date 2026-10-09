@@ -43,6 +43,11 @@ enum : RegIndex
     LE = LVX_SFR_LE, // $s8 hardware-loop end PC     (LOOPDO)
     LC = LVX_SFR_LC, // $s9 hardware-loop iteration count (LOOPDO)
 
+    // $s63 free running cycle counter.  Not storage: the shim derives it from
+    // the CPU's cycle count and keeps the misc-reg at this address as the bias
+    // a write establishes.  See readFrcc in shim.cc.
+    FRCC = LVX_SFR_FRCC,
+
     // The whole SFR address space, not just the named registers: most indices
     // are unnamed. Was hand-set to 256, which is half of it.
     NumRegs = LVX_SFR_COUNT

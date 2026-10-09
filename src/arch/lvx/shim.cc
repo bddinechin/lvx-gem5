@@ -33,6 +33,7 @@
 #include "arch/lvx/regs/vec.hh"
 #include "arch/lvx/shim.h"
 #include "base/logging.hh"
+#include "cpu/base.hh"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
 #include "debug/LvxDecode.hh"
@@ -94,15 +95,40 @@ commitGpr(BehaviorContext *ctx, int id, uint64_t val)
     writeGpr(ctx->tc, id, val);
 }
 
+// FRCC, the free running cycle counter ($s63; RegFile.yml names it exactly
+// that).  Not storage: like the PC, its value is machine state, so a plain
+// misc-reg read returned its reset value 0 forever.  Nothing diagnosed that --
+// `get $rN = $frcc' assembled, linked and executed, and returned 0 every time
+// -- which is why clock(), times() and gettimeofday() had nothing to be built
+// on, and why MiBench's bitcount could not even be linked.
+//
+// The misc-reg at this address is kept, but as a BIAS rather than a value: a
+// read returns curCycle() + bias, a write sets bias = value - curCycle().  So
+// the counter reads as cycles elapsed since reset, a write of V makes later
+// reads V plus what has elapsed since, and a write is not silently dropped --
+// which is what would happen if reads just ignored the stored word.
+//
+// This sits in readSfr/writeSfr, the funnel every path shares, and NOT at the
+// call sites.  Behavior_readFromStorage_SRS reads SFRs directly while
+// readSfrByFileIndex reaches the mapped exceptions through
+// readSfrFromStorage_SRS, so handling it in the latter missed the GET path
+// entirely -- and handling it in both would have added the cycle count twice
+// on one of them.
 static inline uint64_t
 readSfr(ThreadContext *tc, unsigned idx)
 {
+    if (idx == misc_reg::FRCC)
+        return tc->getCpuPtr()->curCycle() + tc->readMiscRegNoEffect(idx);
     return tc->readMiscRegNoEffect(idx);
 }
 
 static inline void
 writeSfr(ThreadContext *tc, unsigned idx, uint64_t val)
 {
+    if (idx == misc_reg::FRCC) {
+        tc->setMiscReg(idx, val - tc->getCpuPtr()->curCycle());
+        return;
+    }
     tc->setMiscReg(idx, val);
 }
 

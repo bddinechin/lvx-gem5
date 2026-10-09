@@ -15,6 +15,13 @@ elf = sys.argv[1]
 cpu_kind = os.environ.get("LVX_CPU", "atomic").lower()
 
 system = System()
+# 1 GHz is the LVX core clock, and lvx-newlib's _LVX_CPU_FREQ
+# (newlib/libc/sys/mbr/include/mbr/lvx/cpu.h) must equal it: that constant is
+# what clock(), times(), gettimeofday() and nanosleep() divide the cycle
+# counter by, so a disagreement makes every guest-visible elapsed time wrong by
+# the ratio -- silently, because all four divide by the same constant and so
+# agree with each other. It was 800 MHz (inherited from KVX) against this
+# 1 GHz until 2026-10-09, i.e. 1.25x too large. Change one, change both.
 system.clk_domain = SrcClockDomain(clock="1GHz",
                                    voltage_domain=VoltageDomain())
 # Atomic memory for the functional CPUs; timing memory for the pipeline model.

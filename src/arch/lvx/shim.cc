@@ -2177,13 +2177,26 @@ Behavior_intcomp_8(void * /*self*/, uint8_t code, uint8_t a, uint8_t b)
     return lvxIntcomp(code, (int8_t)a, (int8_t)b, a, b);
 }
 
-// The 128-bit compare (COMPQ): the operands arrive as int256_t holding the
-// quad word in their low 128 bits, sign- or zero-extended per int256_sx/zx of
-// the behavior; the full-width compares give the right answer for both.
+// The 128-bit compare (COMPQ): the operands arrive in a 256-bit container
+// holding the quad word in its low 128 bits, and NOTHING EXTENDS THEM -- COMPQ's
+// Behavior reads argument2/argument3 raw, unlike NEGQ's which wraps them in
+// SX.128. That is not an omission in the description: the helper is width-named,
+// so interpreting its own width is its job, exactly as intcomp_32 casts its
+// uint64_t container to int32_t/uint32_t and intcomp_8 to int8_t/uint8_t.
+//
+// So the signed relations must sign-extend from bit 127 before comparing at the
+// container's width, and the unsigned ones must mask to it. Without the
+// extension a negative __int128 read as a large positive and every signed
+// relation involving one was wrong: `-1 < 1' was false, `1 > -1' was false.
+// Latent until 2026-10-12, because COMPQ had no user -- lvx-gcc builds a
+// 128-bit comparison out of 64-bit pieces and lvx-llvm did the same until it
+// was taught to emit COMPQ, which is what found this.
 bool
 Behavior_intcomp_128(void * /*self*/, uint8_t code, int256_t a, int256_t b)
 {
-    int s = int256_cmp(a, b), u = int256_cmpu(a, b);
+    const int256_t as = int256_sx(a, 128), bs = int256_sx(b, 128);
+    const int256_t au = int256_zx(a, 128), bu = int256_zx(b, 128);
+    int s = int256_cmp(as, bs), u = int256_cmpu(au, bu);
     switch (code) {
       case  0: return s <  0;                          // LT
       case  1: return s >= 0;                          // GE
@@ -2191,8 +2204,8 @@ Behavior_intcomp_128(void * /*self*/, uint8_t code, int256_t a, int256_t b)
       case  3: return u >= 0;                          // GEU
       case  4: return s == 0;                          // EQ
       case  5: return s != 0;                          // NE
-      case  6: return int256_cmpu(int256_and(a, b), int256_zero) != 0; // ANY
-      case  7: return int256_cmpu(int256_and(a, b), int256_zero) == 0; // NONE
+      case  6: return int256_cmpu(int256_and(au, bu), int256_zero) != 0; // ANY
+      case  7: return int256_cmpu(int256_and(au, bu), int256_zero) == 0; // NONE
       case  8: return s <= 0;                          // LE
       case  9: return s >  0;                          // GT
       case 10: return u <= 0;                          // LEU

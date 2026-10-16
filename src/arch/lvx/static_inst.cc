@@ -17,6 +17,7 @@
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/shim.hh"
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "cpu/exec_context.hh"
 #include "cpu/thread_context.hh"
@@ -122,6 +123,7 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
             if (i == 0) {
                 assign(EXU_BCU0, syll, i);       // first BCU -> BCU0
                 bcuInuse++;
+                flags[IsControl] = true;         // a BCU slot may redirect the PC
             } else if (i == 1 && bcuInuse == 1) {
                 if (exuTag(syll) == 0) {         // BCU offset extension
                     issued[EXU_BCU0].immx[0] = syll;
@@ -129,6 +131,7 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
                     issued[EXU_BCU0].nsyll = 2;
                 } else {
                     assign(EXU_BCU1, syll, i);
+                    flags[IsControl] = true;
                 }
                 bcuInuse++;
             } else {                             // IMMX for an ALU/LSU insn
@@ -139,7 +142,14 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
                     ins.nsyll++;
                 }
             }
-            flags[IsControl] = true;             // a BCU slot may redirect the PC
+            // IsControl marks a bundle holding a BCU *instruction*, and only
+            // that: steering 0 is also how an IMMX extension syllable for an
+            // ALU/LSU instruction is tagged, and this used to set the flag for
+            // those too -- so any bundle with a wide immediate looked like a
+            // branch. It costs correctness nowhere (the PC is whatever the
+            // behavior wrote) but it is what the taken-branch penalty and the
+            // branch predictor key off, so a bundle that cannot branch must not
+            // claim it can.
             break;
 
           case Steer_ALU:                        // ALU spills ALU0,ALU1,LSU0,LSU1
@@ -209,29 +219,55 @@ LvxStaticInst::setUpRegs()
     _numSrcRegs = 0;
     _numDestRegs = 0;
 
-    auto regId = [](const LvxRegOperand &o, const uint64_t *decoded) -> RegId {
-        if (o.file == LVX_RF_GPR) {
+    // One table entry names one operand, and an operand is one register --
+    // except PGR and QGR, which are an aligned GPR *pair* and *quad* (a 128-
+    // or 256-bit value has no file of its own), and expand into their member
+    // GPRs. That expansion is the granule the scoreboard tracks: a scalar read
+    // of one half of a vector result has to see the dependency, and a packed
+    // write has to be visible to a later scalar read of either register.
+    auto forEachReg = [](const LvxRegOperand &o, const uint64_t *decoded,
+                         auto &&fn) {
+        if (o.file == LVX_RF_SFR) {
             RegIndex i = o.slot >= 0
-                ? (RegIndex)(decoded[o.slot] - Register_lvx_R0) : o.fixed;
-            return intRegClass[i];
+                ? (RegIndex)(decoded[o.slot] - Register_lvx_PC) : o.fixed;
+            fn(miscRegClass[i]);
+            return;
+        }
+        if (o.file == LVX_RF_PGR || o.file == LVX_RF_QGR) {
+            const unsigned n = lvxRegFileTupleSize[o.file];
+            const unsigned fileBase = o.file == LVX_RF_PGR
+                                    ? Register_lvx_P0 : Register_lvx_Q0;
+            RegIndex t = o.slot >= 0
+                ? (RegIndex)(decoded[o.slot] - fileBase) : o.fixed;
+            for (unsigned j = 0; j < n; ++j)
+                fn(intRegClass[t * n + j]);
+            return;
         }
         RegIndex i = o.slot >= 0
-            ? (RegIndex)(decoded[o.slot] - Register_lvx_PC) : o.fixed;
-        return miscRegClass[i];
+            ? (RegIndex)(decoded[o.slot] - Register_lvx_R0) : o.fixed;
+        fn(intRegClass[i]);
     };
     auto add = [&](const RegId &r, bool dest) {
         // Dedup: a register read/written by two instructions of the bundle is one
         // dependency, and dropping the duplicate keeps a valid WAW off the list.
+        // Overflow panics rather than truncating: a dropped dependency is a
+        // missing stall, so the symptom would be a cycle count that is quietly
+        // too low. The bounds are the architectural worst case (static_inst.hh),
+        // so this is unreachable unless an operand kind grows.
         if (dest) {
             for (int i = 0; i < _numDestRegs; ++i)
                 if (destRegIdxArr[i] == r) return;
-            if (_numDestRegs < (int)MaxBundleDestRegs)
-                setDestRegIdx(_numDestRegs++, r);
+            panic_if(_numDestRegs >= (int)MaxBundleDestRegs,
+                     "LVX bundle has more than %u destination registers",
+                     MaxBundleDestRegs);
+            setDestRegIdx(_numDestRegs++, r);
         } else {
             for (int i = 0; i < _numSrcRegs; ++i)
                 if (srcRegIdxArr[i] == r) return;
-            if (_numSrcRegs < (int)MaxBundleSrcRegs)
-                setSrcRegIdx(_numSrcRegs++, r);
+            panic_if(_numSrcRegs >= (int)MaxBundleSrcRegs,
+                     "LVX bundle has more than %u source registers",
+                     MaxBundleSrcRegs);
+            setSrcRegIdx(_numSrcRegs++, r);
         }
     };
 
@@ -241,9 +277,30 @@ LvxStaticInst::setUpRegs()
         if (si.opcode >= (unsigned)Opcode__NUM)
             continue;
         const LvxRegDeps &d = lvx_reg_deps[si.opcode];
-        for (unsigned k = 0; k < d.nsrc; ++k) add(regId(d.src[k], si.decoded), false);
-        for (unsigned k = 0; k < d.ndst; ++k) add(regId(d.dst[k], si.decoded), true);
-        if (d.lat > lat) lat = d.lat;   // bundle result latency = max over syllables
+        auto addSrc = [&](const RegId &r) { add(r, false); };
+        auto addDst = [&](const RegId &r) { add(r, true); };
+        for (unsigned k = 0; k < d.nsrc; ++k)
+            forEachReg(d.src[k], si.decoded, addSrc);
+        for (unsigned k = 0; k < d.ndst; ++k)
+            forEachReg(d.dst[k], si.decoded, addDst);
+
+        // A load's latency is not a property of its opcode alone: the `variant'
+        // modifier moves the loaded operand's write stage, so `ld' returns from
+        // the L1 at CR (latency 3) while `ld.u'/`ld.us' bypass it and return at
+        // SR (latency 15). `lq' and `lq.u' are one Opcode with one Behavior, so
+        // the description carries this per modifier *member* (Modifier.yml's
+        // LoadedAt, folded into Opcode@timing); BE/GEM5 resolves it to a
+        // latency per encoded value, which is what the decoded modifier field
+        // indexes. Before 2026-10-16 the ISS costed every load as an L1 hit --
+        // twelve cycles short on exactly the access software pipelining and
+        // prefetching exist to cover.
+        unsigned opLat = d.lat;
+        if (d.varSlot >= 0) {
+            uint64_t v = si.decoded[d.varSlot];
+            if (v < d.nVarLat)
+                opLat = d.varLat[v];
+        }
+        if (opLat > lat) lat = opLat;   // bundle latency = max over syllables
     }
 
     // Route the bundle to the MinorCPU functional unit whose opLat equals its

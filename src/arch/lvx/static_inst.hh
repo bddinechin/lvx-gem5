@@ -22,12 +22,21 @@ namespace LvxISA
 // Max operand fields any single LVX instruction decodes into (observed <= ~6).
 inline constexpr unsigned MaxOperandsPerInst = 12;
 
-// A bundle's aggregated source/destination register lists (across its up-to-8
-// issued instructions) for the timing CPUs' dependency graph. Sized with
-// headroom for lvx_v1; lvx_v2's register-buffer operands (up to 64 XVR regs for
-// buffer64Reg) will need a larger source bound when they reach this port.
-inline constexpr unsigned MaxBundleSrcRegs = 48;
-inline constexpr unsigned MaxBundleDestRegs = 24;
+// A bundle's aggregated source/destination register lists for the timing CPUs'
+// dependency graph. The bounds are the worst case rather than an estimate: one
+// instruction names at most MaxInstSrcRegs/MaxInstDestRegs registers once its
+// PGR/QGR tuple operands are expanded into their member GPRs (6 and 4 today,
+// BSELQ and COPYO), and a bundle issues at most MaxBundleIssue of them, so a
+// bundle cannot exceed the product. Dedup usually keeps the real count far
+// below it; overflowing would silently drop a dependency, which understates
+// the cycle count, so setUpRegs panics instead (see there).
+//
+// lvx_v2's register-buffer operands (up to 64 XVR regs for buffer64Reg) are not
+// tracked yet and will raise MaxInstSrcRegs when they reach this port.
+inline constexpr unsigned MaxInstSrcRegs = 6;
+inline constexpr unsigned MaxInstDestRegs = 4;
+inline constexpr unsigned MaxBundleSrcRegs = MaxBundleIssue * MaxInstSrcRegs;
+inline constexpr unsigned MaxBundleDestRegs = MaxBundleIssue * MaxInstDestRegs;
 
 // One decoded instruction within a bundle: its MDS opcode, the extracted
 // operand values (decoded[] the behavior bodies read), and its byte offset from

@@ -100,6 +100,48 @@ instead of a stub. Implemented:
 
 ## Known gaps / next
 
+### Timing (`LVX_CPU=minor`)
+
+Three timing defects were fixed on 2026-10-16 and one named, all in
+`docs/register-buffer-deps.md` and
+`../docs/handoff-mds-load-variants.md`; `tests/lvx/diff/check_timing.sh`
+pins what was fixed. Fixed: the **GPR tuples** `PGR`/`QGR` were untracked, so
+599 lvx_v2 opcodes — `lq`, `lo` and every packed SIMD result — had no
+destination register and therefore no latency; an **uncached load** (`ld.u`,
+`ld.us`) returns at SR, a latency of 15, not the L1's 3; and a **taken branch**
+now costs `Processor@minTaken`, charged as a bubble on issue that a pending
+result latency elapses against rather than adding to.
+
+Still open, in order of size:
+
+- **There is no load shadow.** MinorCPU drains its functional units in commit
+  order, so an instruction that finishes early behind a long-latency one stalls
+  its own FU. Independent work between an `ld.u` and its first use therefore
+  does not overlap the load: `ld.u; N fillers; use` costs `15 + N + 1`, where
+  the architecture says `max(N + 1, 15) + 1`. The latency is charged correctly;
+  scheduling around it earns nothing. Intrinsic to one FU and one latency per
+  bundle — the fix is the micro-op split in `docs/register-buffer-deps.md`.
+- **The hardware-loop back edge costs ~6 cycles instead of 1.** It is invisible
+  to Minor's branch predictor (the bundle holds no branch), so every back edge
+  is an unpredicted redirect paying the full front-end refill — which makes a
+  `LOOPDO` loop look dearer than the rotated branch loop it replaces. This is
+  the inverse of the architecture and the largest remaining error.
+- **A conditional branch should cost one cycle more than an unconditional one**
+  (`Opcode@timing`'s `%0: Transfer.c` — `cb`/`igoto`/`icall` resolve in RR, not
+  ID). The ISS charges `minTaken` for both, so a `cb` is one cycle cheap.
+- **A mispredicted branch pays Minor's refill on top of `minTaken`.** The
+  predictor is kept on deliberately, as a stand-in for an LVX fetch engine that
+  keeps up; the residue is the first execution of each branch and each loop
+  exit, so a warm loop is unaffected.
+- **The read stage is assumed to be RR for every source**, where a store's
+  stored value and a `MADD*` accumulator are read at E1 — conservative by one
+  cycle on those edges. Needs the bundle split into micro-ops; see
+  `docs/register-buffer-deps.md`.
+- **`XVR` and the RISC-V `RV` register file are still untracked**, so an
+  extension-unit or RV64G dependence stalls nothing.
+
+### Behavior helpers
+
 **25 helpers remain panic stubs on `lvx_v2`** (the superset core), 22 on `lvx_v1`
 — measured 2026-10-08 from `lvx-mds`'s `lvx-refs/BE/GEM5/<core>/helper_stubs.inc`,
 which is per core and independent of whichever core `generated/` currently holds.

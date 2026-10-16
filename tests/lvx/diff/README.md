@@ -84,7 +84,26 @@ Some behaviour has no x86 equivalent to diff against, so it is checked directly 
 a `check_*.sh` in this directory: `check_highmult.sh` (the four `muld` variants),
 `check_fp.sh` / `check_fpn.sh` / `check_fcomp.sh` / `check_conv.sh` (the scalar FP
 surface), `check_ccb.sh` (the fused compare-and-branch predicates), `check_xvr.sh`
-(the lvx-2 vector moves) and **`check_ownership.sh`** (system-register ownership).
+(the lvx-2 vector moves), **`check_ownership.sh`** (system-register ownership) and
+**`check_timing.sh`** (the taken-branch penalty and the load variants' latency).
+
+**`check_timing.sh`** is the odd one in the other direction: it checks *cycles*
+rather than results, so it is the only script here that needs `LVX_CPU=minor`
+(it sets it itself). Two description numbers nothing in the ISS read until
+2026-10-16 are what it pins -- `Processor@minTaken`, the cycles a taken branch
+costs beyond its own bundle, and the write stage of an *uncached* load, which is
+SR rather than the L1 stage (`Modifier@variant`'s `LoadedAt`, reaching the ISS
+through `Opcode@timing`). Both are read out of the generated `lvx_stages.py`, so
+changing one in `Processor.yml` moves the expectation with it. The assertions about
+*dangling* are the subtle ones: code that is already waiting on a latency must
+cost the *same* whatever `minTaken` is, because the branch's stall cycles
+elapse against that latency instead of adding to it. `LVX_TAKEN_BUBBLE` (see
+`run_lvx.py`) is what makes it measurable -- the same binary at a penalty of 0
+and of `minTaken`, so the prologue and the cold instruction fetch cancel
+exactly. `ld.u; goto; use` is the sharpest of them: it fails if the penalty is
+ever anchored at the branch's *commit* rather than its issue, since in-order
+commit holds the branch behind the load and a commit-anchored bubble lands
+after the latency it should have vanished into.
 
 `check_ownership.sh` is the odd one: everything else here runs at PL0, where the
 ownership model is invisible by construction, so its two programs leave PL0 on

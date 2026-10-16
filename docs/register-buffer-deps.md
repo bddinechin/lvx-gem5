@@ -43,17 +43,86 @@
 > no modelling (the assembler's bundling guarantees a valid bundle has none), so
 > only dependence latency matters, and it is `writeStage − readStage` from the
 > Behavior stage annotations (`operand{From,To}RegFile`'s stage argument, against
-> the Processor `pipeline`: `RR=1`, `E1=2`, … `E3=4`, `SF=16`, `SR=24`).
-> `reg-operands.pl` folds `max(write stage) − RR` into `lvx_reg_deps[op].lat`
-> (ALU 1, load 3, divide/sqrt 15, atomic RMW 23 — all cross-checked by mnemonic,
-> e.g. the 135 `SR=24` writers are exactly the `ACSWAP*`/`ASWAP*`/`AL*` atomics,
-> not a typo). The stages themselves are a generated **named enum** — BE/GEM5
+> the Processor `pipeline`). `reg-operands.pl` folds `max(write stage) − RR` into
+> `lvx_reg_deps[op].lat` — all cross-checked by mnemonic, e.g. the `SR` writers
+> are exactly the `ACSWAP*`/`ASWAP*`/`AL*` atomics, not a typo. The stages
+> themselves are a generated **named enum** — BE/GEM5
 > emits `lvx_stages.h` (C `enum LvxStage`) + a Python twin from `Processor.table`,
 > and `static_inst.cc`/`LvxCPU.py` use `LVX_STAGE_* - LVX_STAGE_RR`, never a
 > literal. `LvxStaticInst` routes each bundle (max latency over its syllables) to
 > a latency-bucket FU in `LvxFUPool` whose `opLat` is that latency. Verified in a
 > cache-resident loop: a lat-2 (`maddd`) dependent chain costs ~2× the per-op
 > latency of a lat-1 (`addd`) chain (20.3 vs 12.4 cyc/iter over a 10-op body).
+>
+> (The absolute stage *numbers* in the paragraph above have since moved —
+> `SF=16, SR=24` was the pipeline of 2026-07; it is `SF=12, FD=14, SR=16` now,
+> so the latencies are ALU 1, cached load 3, integer divide 11, FP divide/sqrt
+> 13, atomic RMW 15. Which is the whole argument for the generated enum: the
+> code did not have to change, only this prose, which is not generated.)
+>
+> **Three corrections since, all 2026-10-16** (see
+> `../../docs/handoff-mds-load-variants.md`):
+>
+> - **The GPR tuples are tracked.** `reg-operands.pl` modelled only `GPR` and
+>   `SFR`, so an operand in `PGR` (an aligned pair) or `QGR` (an aligned quad)
+>   was invisible — and that is where every 128- and 256-bit value lives, there
+>   being no wide register file. 599 lvx_v2 opcodes had **no destination at
+>   all** and so a latency of 0: `lq`, `lo`, and every packed SIMD result. They
+>   now expand into their member GPRs, which is the granule the scoreboard
+>   tracks and what a later scalar read of half a vector depends on. The port's
+>   per-bundle list bounds are now the architectural worst case (`MaxInstSrcRegs
+>   × MaxBundleIssue`), checked against the generated table by a
+>   `_Static_assert` in `behavior.c`, and overflow panics rather than dropping a
+>   dependency — a dropped dependency being a cycle count quietly too low.
+> - **An uncached load's latency is 15, not 3.** The write stage of the loaded
+>   operand is a property of the `variant` *modifier*, not of the Opcode: `lq`
+>   and `lq.u` are one record with one Behavior. `lvx_reg_deps` now carries a
+>   latency per encoded modifier value (`varLat`/`varSlot`) and `setUpRegs`
+>   indexes it with the decoded field.
+> - **A taken branch costs `Processor@minTaken`.** `LvxMinorCPU` sets
+>   `takenBranchBubble`, a new (ISA-agnostic, default-0) MinorCPU parameter that
+>   holds issue until `branch issue cycle + 1 + minTaken`. A *release cycle*
+>   anchored at **issue**, and both halves of that matter. A release cycle
+>   rather than a countdown means it combines with the scoreboard as a max, so
+>   a pending result latency elapses during the stall instead of being added to
+>   it. Anchored at issue rather than at commit — where the branch is actually
+>   detected to have been taken — because in-order commit can hold a branch
+>   many cycles behind a long-latency instruction ahead of it, and a
+>   commit-anchored bubble then lands *after* the latency it was supposed to
+>   disappear into: `ld.u; goto; use` measured 16.6 cycles a copy at a penalty
+>   of 0 and 18.6 at 2, where the architecture says the branch is free. The
+>   issue cycle is now recorded on `MinorDynInst` (`issueCycle`). Minor's own
+>   taken-branch cost is its front-end refill, which is deeper than LVX's and
+>   nearly free once the branch predictor has learned a loop — 0.2 cycles per
+>   taken branch, measured. All of it is pinned by
+>   `tests/lvx/diff/check_timing.sh`.
+>
+> **Still wrong, and the reason a long latency cannot be *scheduled* around:
+> MinorCPU drains its functional units in commit order.** An instruction that
+> reaches the end of a short FU while a long-latency one is still ahead of it
+> in the in-order commit queue cannot retire, so it stalls its own FU and
+> blocks every later instruction of that class. The consequence is that there
+> is **no load shadow**: independent work placed between an `ld.u` and its
+> first use does not overlap the load at all, and a copy of
+> `ld.u; N fillers; use` costs `15 + N + 1` where the architecture says
+> `max(N + 1, 15) + 1`. Measured across N = 0..19, the curve has slope 1
+> throughout instead of a plateau to N = 14. So the 15-cycle latency is now
+> charged, but software pipelining and prefetch distance get no credit for
+> hiding it — the ISS is pessimistic exactly where a scheduler is trying to
+> win. This is intrinsic to the bundle-as-one-`StaticInst` model (one FU, one
+> latency per bundle) and is what the **micro-op split** below is for.
+>
+> **Also wrong: the hardware-loop back
+> edge.** It is performed by the fetch engine on a bundle that holds no branch,
+> so it is correctly exempt from `takenBranchBubble` — but it is also invisible
+> to Minor's branch predictor, which means every back edge is an *unpredicted*
+> redirect and pays the full front-end refill. A one-bundle `LOOPDO` body
+> measures **6.1 cycles a trip** where the architecture says 1, so the ISS makes
+> a hardware loop look dearer than the rotated branch loop it exists to replace
+> (4.1 cycles a trip for a three-bundle body). Fixing it needs a way to tell
+> Minor that a redirect is free, which is a dynamic fact — the loop end is
+> `LE`, a run-time register — and so not expressible through `StaticInst`
+> flags. Untouched by the above; `LVX_TAKEN_BUBBLE=0` reproduces it exactly.
 >
 > **Read stage is per-source, and currently approximated.** The true latency is
 > `writeStage(producer) - readStage(that consumer's source)`. Most sources are

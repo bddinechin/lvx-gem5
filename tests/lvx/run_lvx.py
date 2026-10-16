@@ -5,6 +5,12 @@
 # fast -- what the differential validation harness uses), "timing" (functional +
 # memory-system timing), or "minor" (in-order pipeline; consumes the instruction
 # register-dependency lists to produce cycle-accurate-ish timing -- much slower).
+#
+# LVX_TAKEN_BUBBLE overrides the taken-branch penalty of the "minor" model,
+# whose default is the architectural LVX_MIN_TAKEN (Processor@minTaken, via the
+# generated lvx_stages.py).  It exists to *measure* that penalty: running the
+# same binary at 0 and at the real value isolates it exactly, which is how
+# tests/lvx/diff/check_timing.sh pins it.  Do not set it for a performance run.
 import os
 import sys
 
@@ -30,6 +36,9 @@ system.mem_ranges = [AddrRange("512MB")]
 
 if cpu_kind == "minor":
     cpu = LvxMinorCPU()
+    bubble = os.environ.get("LVX_TAKEN_BUBBLE")
+    if bubble is not None:
+        cpu.takenBranchBubble = int(bubble)
 elif cpu_kind == "timing":
     cpu = LvxTimingSimpleCPU()
 else:

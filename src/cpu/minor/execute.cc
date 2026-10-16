@@ -79,6 +79,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
       setTraceTimeOnIssue(params.executeSetTraceTimeOnIssue),
       allowEarlyMemIssue(params.executeAllowEarlyMemoryIssue),
       noCostFUIndex(fuDescriptions.funcUnits.size() + 1),
+      takenBranchBubble(params.takenBranchBubble),
       lsq(name_ + ".lsq", name_ + ".dcache_port", cpu_, *this,
           params.executeMaxAccessesInMemory, params.executeMemoryWidth,
           params.executeLSQRequestsQueueSize,
@@ -288,6 +289,45 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
     } else {
         /* No branch at all */
         reason = BranchData::NoBranch;
+    }
+
+    /* A taken branch costs a fixed number of cycles before its target can
+     * issue on a core that resolves branches in the pipeline rather than
+     * predicting them (LVX's Processor@minTaken).  Charge it here, where the
+     * redirect is known to be real: `must_branch' without a fault and without
+     * the forced-branch cases is exactly "this instruction changed the PC".
+     *
+     * isControl() is the other half of the test, and it is not redundant: an
+     * ISA may redirect the PC by a mechanism that is not a branch and costs
+     * nothing -- an LVX hardware-loop back edge is performed by the fetch
+     * engine on a bundle that holds no branch at all -- and charging those
+     * would price the loop construct as the branch it exists to replace.
+     *
+     * The penalty is measured from the cycle the branch *issued*, not from
+     * now: this runs at commit, which in-order commit can push far past issue
+     * when something long-latency is ahead in the queue, and the architecture
+     * charges the branch where the branch was.  Anchoring it at issue is also
+     * what makes the stall elapse a pending latency instead of following it --
+     * "ld.u; goto; use" must cost the load's latency and nothing for the
+     * branch, where anchoring at commit would charge both, the branch's commit
+     * being held behind the load's.  Whence a release cycle rather than a
+     * countdown: issue resumes at (branch issue + 1 + penalty), which may
+     * already be in the past, and otherwise combines with the scoreboard's own
+     * ready cycles as a max.
+     *
+     * commit() runs before issue() in the same cycle (see Execute::evaluate),
+     * so a branch that issues in cycle T and commits in T+1 still holds the
+     * target out of T+1 and T+2, releasing it in T+3 for a penalty of 2. */
+    if (takenBranchBubble != Cycles(0) && must_branch && fault == NoFault &&
+        !force_branch && inst->staticInst->isControl())
+    {
+        ExecuteThreadInfo &thread_info = executeInfo[inst->id.threadId];
+        Cycles until = inst->issueCycle + Cycles(1) + takenBranchBubble;
+        if (until > thread_info.issueBubbleUntil)
+            thread_info.issueBubbleUntil = until;
+        DPRINTF(Branch, "Taken branch issued in cycle %d: holding issue"
+            " until cycle %d\n", inst->issueCycle,
+            thread_info.issueBubbleUntil);
     }
 
     updateBranchData(inst->id.threadId, reason, inst, *target, branch);
@@ -549,6 +589,16 @@ Execute::issue(ThreadID thread_id)
     if (!insts_in)
         return 0;
 
+    /* Serving a taken branch's bubble: issue nothing, but keep ticking.  The
+     * CPU stays awake because the activity test below (can_issue_next) does
+     * not know about this stall, which is what we want -- the bubble is a
+     * delay, not an idle period. */
+    if (cpu.curCycle() < thread.issueBubbleUntil) {
+        DPRINTF(MinorExecute, "Not issuing: taken-branch bubble until"
+            " cycle %d\n", thread.issueBubbleUntil);
+        return 0;
+    }
+
     /* Start from the first FU */
     unsigned int fu_index = 0;
 
@@ -625,6 +675,7 @@ Execute::issue(ThreadID thread_id)
 
                     DPRINTF(MinorExecute, "Issuing %s to %d\n", inst->id, noCostFUIndex);
                     inst->fuIndex = noCostFUIndex;
+                    inst->issueCycle = cpu.curCycle();
                     inst->extraCommitDelay = Cycles(0);
                     inst->extraCommitDelayExpr = NULL;
 
@@ -712,6 +763,7 @@ Execute::issue(ThreadID thread_id)
 
                         /* Decorate the inst with FU details */
                         inst->fuIndex = fu_index;
+                        inst->issueCycle = cpu.curCycle();
                         inst->extraCommitDelay = extra_dest_retire_lat;
                         inst->extraCommitDelayExpr =
                             extra_dest_retire_lat_expr;

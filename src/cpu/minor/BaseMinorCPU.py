@@ -410,6 +410,18 @@ class BaseMinorCPU(BaseCPU):
         2, "Size of LSQ transfers queue (memory transaction queue)"
     )
     executeLSQStoreBufferSize = Param.Unsigned(5, "Size of LSQ store buffer")
+    takenBranchBubble = Param.Cycles(
+        0,
+        "Cycles for which Execute stops issuing once an instruction has"
+        " redirected the PC -- a fixed, architectural taken-branch penalty for"
+        " a core whose fetch engine resolves branches in the pipeline instead"
+        " of predicting them.  Counted from the cycle the branch *issued*, so"
+        " result latencies already in flight elapse during the stall rather"
+        " than being added to it: issue resumes at (branch issue + 1 + this),"
+        " which may already have passed.  Applies only to instructions that"
+        " are isControl(); 0 (the default) leaves the model unchanged.",
+    )
+
     executeBranchDelay = Param.Cycles(
         1,
         "Delay from Execute deciding to branch and Fetch1 reacting"

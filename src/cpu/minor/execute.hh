@@ -118,6 +118,10 @@ class Execute : public Named
      *  which pass the MinorDynInst::isNoCostInst test */
     unsigned int noCostFUIndex;
 
+    /** Cycles for which issue stops after a taken branch (0 == no penalty).
+     *  See BaseMinorCPU.py's takenBranchBubble. */
+    Cycles takenBranchBubble;
+
     /** Dcache port to pass on to the CPU.  Execute owns this */
     LSQ lsq;
 
@@ -167,7 +171,8 @@ class Execute : public Named
             instsBeingCommitted(other.instsBeingCommitted),
             streamSeqNum(other.streamSeqNum),
             lastPredictionSeqNum(other.lastPredictionSeqNum),
-            drainState(other.drainState)
+            drainState(other.drainState),
+            issueBubbleUntil(other.issueBubbleUntil)
         { }
 
         /** In-order instructions either in FUs or the LSQ */
@@ -202,6 +207,14 @@ class Execute : public Named
 
         /** State progression for draining NotDraining -> ... -> DrainAllInsts */
         DrainState drainState;
+
+        /** Cycle before which issue is held off by a taken branch's bubble.
+         *  An absolute cycle derived from the branch's *issue* cycle, not a
+         *  countdown started at commit, so a result latency in flight runs
+         *  down while the bubble is being served and the two combine as a max
+         *  rather than a sum -- the branch penalty is a delay to issue, not an
+         *  addition to every dependence that crosses it. */
+        Cycles issueBubbleUntil = Cycles(0);
     };
 
     std::vector<ExecuteThreadInfo> executeInfo;

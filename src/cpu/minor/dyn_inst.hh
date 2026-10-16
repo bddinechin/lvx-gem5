@@ -196,6 +196,14 @@ class MinorDynInst : public RefCounted
     /** FU this instruction is issued to */
     unsigned int fuIndex = 0;
 
+    /** Cycle in which this instruction issued.  Set by Execute::issue, and
+     *  distinct from the cycle it is committed in: an instruction behind a
+     *  long-latency one in the in-order commit queue can wait many cycles
+     *  between the two.  A penalty the architecture measures from issue --
+     *  Execute's takenBranchBubble -- has to be anchored here, not at commit,
+     *  or it lands after the latency it was supposed to overlap with. */
+    Cycles issueCycle{0};
+
     /** This instruction is in the LSQ, not a functional unit */
     bool inLSQ = false;
 

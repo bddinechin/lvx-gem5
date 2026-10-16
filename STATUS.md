@@ -119,8 +119,12 @@ Still open, in order of size:
   its own FU. Independent work between an `ld.u` and its first use therefore
   does not overlap the load: `ld.u; N fillers; use` costs `15 + N + 1`, where
   the architecture says `max(N + 1, 15) + 1`. The latency is charged correctly;
-  scheduling around it earns nothing. Intrinsic to one FU and one latency per
-  bundle — the fix is the micro-op split in `docs/register-buffer-deps.md`.
+  scheduling around it earns nothing. The cause is that a MinorCPU FU stalls as
+  soon as an instruction reaches its end and in-order commit has not taken it,
+  so one short instruction behind a long one serialises its whole lane — *not*
+  the bundle granularity, so the micro-op split does not fix it. Three
+  candidate fixes, one of them a trap, are worked out with measurements in
+  `docs/register-buffer-deps.md`, *Implementing a load shadow*.
 - **The hardware-loop back edge costs ~6 cycles instead of 1.** It is invisible
   to Minor's branch predictor (the bundle holds no branch), so every back edge
   is an unpredicted redirect paying the full front-end refill — which makes a

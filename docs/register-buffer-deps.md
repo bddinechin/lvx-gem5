@@ -109,8 +109,8 @@
 > throughout instead of a plateau to N = 14. So the 15-cycle latency is now
 > charged, but software pipelining and prefetch distance get no credit for
 > hiding it — the ISS is pessimistic exactly where a scheduler is trying to
-> win. This is intrinsic to the bundle-as-one-`StaticInst` model (one FU, one
-> latency per bundle) and is what the **micro-op split** below is for.
+> win. See *Implementing a load shadow* below; note it is **not** what the
+> micro-op split fixes, the blocking being independent of granularity.
 >
 > **Also wrong: the hardware-loop back
 > edge.** It is performed by the fetch engine on a bundle that holds no branch,
@@ -134,7 +134,82 @@
 > instruction bits (which gem5 itself calls "a bit of a hack"), and per-source
 > position — so it needs the bundle split into per-sub-instruction **micro-ops**.
 >
-> **The micro-op split (scoped next step).** Each sub-instruction becomes a
+> ## Implementing a load shadow
+>
+> The chain is exact, and none of it is about granularity. `FUPipeline` is a
+> `SelfStallingPipeline` whose **depth is `opLat`** (`func_unit.cc`), and
+> `advance()` sets `stalled = isPopable()` — an FU stalls the moment an
+> instruction reaches its output end and `commit` has not taken it. `commit`
+> takes instructions from `inFlightInsts` **in order**, and its readiness test
+> is literally "is the head of `inFlightInsts` sitting at the end of its FU"
+> (`funcUnits[inst->fuIndex]->front().inst->id == inst->id`). So: a 1-cycle
+> `addd` issued behind a 15-cycle `ld.u` reaches the end of the 1-deep IntAlu
+> FU in one cycle, cannot be committed because the load is still ahead of it,
+> stalls that FU, and `issue` then refuses every later IntAlu instruction
+> (`else if (fu->stalled)`). One short instruction is enough to serialise the
+> whole lane. **A micro-op split changes none of this** — the blocking is
+> per-FU and per-commit-order, not per-bundle.
+>
+> What LVX actually is: in-order *issue*, interlocked, with **out-of-order
+> writeback** (each result lands at its own write stage, E1…SR). Minor models
+> in-order writeback, which is a different machine.
+>
+> Three things were tried. The first is a trap worth recording:
+>
+> - **Keep `opLat = 1` and carry the real latency in
+>   `MinorFUTiming::extraAssumedLat`** — which `issue` adds to the scoreboard
+>   retire time (`curCycle + opLat + extraCommitLat + extraAssumedLat`), and
+>   which needs no mask/match hackery because the bucket FU has already
+>   selected the instruction (`mask = 0` matches everything). Config-only, and
+>   **wrong**: the scoreboard entry is cleared at *commit*
+>   (`clearInstDests`), so with commit one cycle after issue the dependence is
+>   torn down at cycle 1 and the 15 is never enforced. Measured: the
+>   dependent-load loop fell from 16.3 to 2.4 cycles a copy. Minor's invariant
+>   is "commit happens when the result is ready", and `opLat` cannot be made to
+>   lie about it.
+>
+> - **Uniform FU depth** — add a `MinorFU.pipelineDepth` separate from `opLat`
+>   (the dependence latency stays `opLat`, the occupancy becomes the depth) and
+>   give every LVX FU depth 15. Because the depths are then equal and issue is
+>   in order, instructions reach their FU ends *in issue order*, which is the
+>   order commit wants them in, so no FU ever stalls. ~15 lines of gem5 plus
+>   one config line, and it works exactly: the sweep plateaus at 16.3 cycles a
+>   copy to N = 14 and then takes slope 1, against an ideal of
+>   `max(N + 1, 15) + 1`. **But it breaks the branch model.** Branch resolution
+>   moves to the end of a 15-deep pipeline, so (a) the `minTaken` bubble, which
+>   is anchored at the branch's issue cycle, is always already in the past by
+>   the time commit discovers the branch was taken — the ALU loops fell back to
+>   their penalty-free numbers (6160 → 4169) — and (b) every *unpredicted*
+>   redirect pays a 15-cycle refill, which takes the hardware-loop back edge
+>   from 6.1 to 20.2 cycles a trip. Not a net win on its own.
+>
+> - **Non-blocking functional units** — the recommended fix. Let an
+>   instruction leave its FU after its own `opLat`, stamping a completion cycle
+>   on the `MinorDynInst`, and change commit's readiness test from "at the end
+>   of its FU" to "completed, and not later than now". Commit stays in order,
+>   so sequential semantics are untouched; the scoreboard entry lives until
+>   commit, which is no earlier than `returnCycle`, so lingering entries are
+>   harmless (a consumer tests the cycle, not the entry's existence). A branch
+>   still completes at issue + 1 and resolves there, so `minTaken` and the
+>   hardware-loop cost are unchanged. Touch points: `FUPipeline::advance` (stamp
+>   and do not stall), `Execute::commit`'s FU-front test and its matching
+>   `stalled = false`, `Execute::evaluate`'s `head_inst_might_commit` and
+>   `can_issue_next`, and `issue`'s `fu->stalled` arm. Two caveats: the
+>   LSQ/mem-ref path assumes the instruction is at its FU front, so gate the
+>   mode on a parameter and `fatal()` on a memref under it (LVX issues none —
+>   the shim serves memory inside `execute()`); and `inFlightInsts` is sized
+>   `sum(opLat)` = 36, which the backlog behind one 15-cycle load fits, but a
+>   generic version should size it deliberately and have `issue` check it.
+>
+> One hole survives either fix: a branch sitting *behind* a long-latency
+> operation commits late, so the bubble's release cycle has passed and
+> `minTaken` goes uncharged. The fix is to charge it at **issue**, keyed on
+> `inst->predictedTaken` — which is known then, is correct whenever the
+> predictor is, and is the same stand-in for LVX's fetch engine that the
+> predictor already is — leaving the commit-time path as the correction for the
+> unpredicted case.
+>
+> **The micro-op split (scoped next step; orthogonal to the above).** Each sub-instruction becomes a
 > MinorCPU micro-op with its own opClass/opLat, source list, and per-source
 > `srcRegsRelativeLats`. It also fixes the per-*result* limitation (a load and an
 > ALU result in one bundle share the bundle's max latency today). The hard part

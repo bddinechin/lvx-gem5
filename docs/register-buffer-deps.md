@@ -122,10 +122,17 @@
 > micro-op split fixes, the blocking being independent of granularity.
 >
 > **Also wrong: the hardware-loop back
-> edge.** It is performed by the fetch engine on a bundle that holds no branch,
-> so it is correctly exempt from `takenBranchBubble` — but it is also invisible
-> to Minor's branch predictor, which means every back edge is an *unpredicted*
-> redirect and pays the full front-end refill. A one-bundle `LOOPDO` body
+> edge.** Being the fetch engine's, it is exempt from `takenBranchBubble` —
+> though not for the reason first given here. "The bundle holds no branch" was
+> the test, and it is the wrong one: the bundle LE falls off can perfectly well
+> hold a conditional branch that was *not* taken, and then the ISS charged the
+> penalty anyway, two cycles a trip the hardware does not spend. Since
+> 2026-10-17 the PC state carries the fact instead (`PCStateBase::freeRedirect`,
+> set by `LvxStaticInst::execute` only when the loop engine took the edge), and
+> `tests/lvx/diff/check_timing.sh` pins it with a loop whose last bundle is
+> exactly that untaken `cb`. What remains wrong is that the back edge is
+> invisible to Minor's branch predictor, which means every one is an
+> *unpredicted* redirect and pays the full front-end refill. A one-bundle `LOOPDO` body
 > measures **6.1 cycles a trip** where the architecture says 1, so the ISS makes
 > a hardware loop look dearer than the rotated branch loop it exists to replace
 > (4.1 cycles a trip for a three-bundle body). Fixing it needs a way to tell

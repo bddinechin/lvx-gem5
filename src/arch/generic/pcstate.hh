@@ -137,6 +137,16 @@ class PCStateBase : public Serializable
     virtual void advance() = 0;
     virtual bool branching() const = 0;
 
+    /**
+     * True when this PC was redirected by the fetch engine at no cost -- a
+     * hardware loop's back edge, say -- rather than by a branch the pipeline
+     * had to resolve.  The redirect is real and fetch must follow it; what is
+     * not true is that anything waited for it, so a timing model should
+     * charge it no taken-branch penalty.  An ISA with no such mechanism
+     * leaves this false, which is every ISA but LVX today.
+     */
+    virtual bool freeRedirect() const { return false; }
+
     void
     serialize(CheckpointOut &cp) const override
     {

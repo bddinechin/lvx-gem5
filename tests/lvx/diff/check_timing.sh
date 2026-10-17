@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Ten assertions, each exact, each failing alone if its piece regresses:
+# Thirteen assertions, each exact, each failing alone if its piece regresses:
 #
 #   1. a loop with no dependence stalls costs minTaken per taken branch --
 #      measured as the difference between running the same binary with the
@@ -52,7 +52,10 @@
 #      in-order commit is not ready for -- so without nonBlockingFuncUnits
 #      one short instruction behind a long one serialises its whole lane and
 #      the eight fillers cost the full eight.
-#   7. a *wide* load's first use is one register of the tuple it wrote, and
+#   7. a hardware loop's back edge costs nothing, even when the bundle LE
+#      falls off holds a BCU instruction.  The loop engine takes that edge,
+#      not a branch, so no penalty and no elapsing of anything in flight.
+#   8. a *wide* load's first use is one register of the tuple it wrote, and
 #      stalls for the same whole latency -- both halves of the pair `lq'
 #      writes and all four lanes of the quad `lo' writes.  A 128- or 256-bit
 #      value lives in an aligned GPR tuple, so the dependency only exists if
@@ -89,6 +92,8 @@ TRIPS=1000      # must match .equ TRIPS in timing_alu.s
 ALU_BUNDLES=8   # bundles per trip of timing_alu.s
 COPIES=1000     # TRIPS * UNROLL in timing_ld.s: load/use pairs executed
 TUPLES=3000     # TRIPS * UNROLL * 6 in timing_tuple.s: tuple-lane load/use pairs
+HWTRIPS=1000    # .equ TRIPS in timing_hwloop.s
+HWBUNDLES=7     # bundles in its loop body
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
@@ -145,6 +150,7 @@ build timing_ld  ldb --defsym UNCACHED=1 --defsym BRANCH=1 \
                                || { echo "timing_ld.u+br build failed"; exit 2; }
 build timing_ld  ldf --defsym UNCACHED=1 --defsym FILLERS=1 \
                                || { echo "timing_ld.u+fillers build failed"; exit 2; }
+build timing_hwloop hwl        || { echo "timing_hwloop build failed"; exit 2; }
 build timing_tuple tpc         || { echo "timing_tuple build failed"; exit 2; }
 build timing_tuple tpu --defsym UNCACHED=1 \
                                || { echo "timing_tuple.u build failed"; exit 2; }
@@ -154,10 +160,11 @@ ldc0="$(cycles ldc 0)";  ldc="$(cycles ldc "$MIN_TAKEN")"
 ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
 ldf="$(cycles ldf "$MIN_TAKEN")"
+hwl0="$(cycles hwl 0)";  hwl="$(cycles hwl "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
 for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
-         "$ldf" "$tpc" "$tpu"; do
+         "$ldf" "$hwl0" "$hwl" "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
 
@@ -192,7 +199,13 @@ report "branch stall dangles against ld.u" "$ldu" "$ldu0"
 report_under "8 bundles fit in ld.u's shadow" \
        "$(hundredths_per_copy $(( ldf - ldu )))" 100
 
-# 7. a wide load's lanes: a scalar read of any one register of the pair `lq'
+# 7. the loop engine's back edge is free, and the loop it is measured in
+#    really does issue a bundle a cycle, so a penalty would have shown whole.
+report "hw-loop body is one bundle per cycle" \
+       "$(( (hwl0 + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
+report "hw-loop back edge is free" "$hwl" "$hwl0"
+
+# 8. a wide load's lanes: a scalar read of any one register of the pair `lq'
 #    wrote, or of the quad `lo' wrote, waits the whole latency.
 per_tuple() { echo $(( ($1 + TUPLES / 2) / TUPLES )); }
 report "lq/lo lane use costs 1+(CR-RR)" \
@@ -208,5 +221,6 @@ printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
 printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \
     "$tpc" "$tpu" "$ldf"
+printf 'hw loop %s/%s   (bubble 0 / %s)\n' "$hwl0" "$hwl" "$MIN_TAKEN"
 [ $rc -eq 0 ] && echo "check_timing: PASS" || echo "check_timing: FAIL"
 exit $rc

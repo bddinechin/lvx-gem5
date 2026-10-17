@@ -234,6 +234,11 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
     const std::unique_ptr<PCStateBase> pc_before(inst->pc->clone());
     std::unique_ptr<PCStateBase> target(thread->pcState().clone());
 
+    /* Whether the fetch engine made this redirect for free (a hardware
+     * loop's back edge).  Read before advancePC below, which describes the
+     * next transition and so clears it. */
+    const bool free_redirect = target->freeRedirect();
+
     /* Force a branch for SerializeAfter/SquashAfter instructions
      * at the end of micro-op sequence when we're not suspended */
     bool force_branch = thread->status() != ThreadContext::Suspended &&
@@ -309,11 +314,13 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
      * redirect is known to be real: `must_branch' without a fault and without
      * the forced-branch cases is exactly "this instruction changed the PC".
      *
-     * isControl() is the other half of the test, and it is not redundant: an
-     * ISA may redirect the PC by a mechanism that is not a branch and costs
-     * nothing -- an LVX hardware-loop back edge is performed by the fetch
-     * engine on a bundle that holds no branch at all -- and charging those
-     * would price the loop construct as the branch it exists to replace.
+     * Two things besides must_branch.  freeRedirect() is the PC state saying
+     * the fetch engine made this change at no cost -- a hardware loop's back
+     * edge -- which must be charged nothing: not the penalty, and not the
+     * elapsing of a latency still in flight, because no cycles pass.  The
+     * bundle carrying it may well be isControl(), holding a conditional
+     * branch that was not taken, so that test does not cover this one.  And
+     * isControl() itself still earns its place for everything else.
      *
      * The penalty is measured from the cycle the branch *issued*, not from
      * now: this runs at commit, which in-order commit can push far past issue
@@ -331,7 +338,7 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
      * so a branch that issues in cycle T and commits in T+1 still holds the
      * target out of T+1 and T+2, releasing it in T+3 for a penalty of 2. */
     if (takenBranchBubble != Cycles(0) && must_branch && fault == NoFault &&
-        !force_branch && inst->staticInst->isControl())
+        !force_branch && !free_redirect && inst->staticInst->isControl())
     {
         ExecuteThreadInfo &thread_info = executeInfo[inst->id.threadId];
         Cycles until = inst->issueCycle + Cycles(1) + takenBranchBubble;

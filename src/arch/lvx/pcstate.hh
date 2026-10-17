@@ -40,10 +40,19 @@ class PCState : public GenericISA::UPCState<4>
     // (ARM-Thumb style). Set from PS.RV at RV-mode entry; preserved on advance.
     bool _rv = false;
 
+    // The PC change this state records was the loop engine's back edge, not
+    // a branch: LOOPDO's LE is reached and fetch continues at LS, with no
+    // instruction having decided anything and nothing having waited.  A
+    // bundle can hold a BCU instruction and still get here -- a conditional
+    // branch that was not taken, say -- so "the bundle is a control
+    // instruction" is not the question; this is.
+    bool _freeRedirect = false;
+
   public:
     PCState() = default;
     PCState(const PCState &other) : Base(other),
-        _bundleSize(other._bundleSize), _rv(other._rv) {}
+        _bundleSize(other._bundleSize), _rv(other._rv),
+        _freeRedirect(other._freeRedirect) {}
     PCState &operator=(const PCState &other) = default;
     explicit PCState(Addr addr) { set(addr); }
 
@@ -55,6 +64,7 @@ class PCState : public GenericISA::UPCState<4>
         Base::update(other);
         _bundleSize = other.as<PCState>()._bundleSize;
         _rv = other.as<PCState>()._rv;
+        _freeRedirect = other.as<PCState>()._freeRedirect;
     }
 
     unsigned bundleSize() const { return _bundleSize; }
@@ -62,6 +72,9 @@ class PCState : public GenericISA::UPCState<4>
 
     bool rv() const { return _rv; }
     void rv(bool v) { _rv = v; }
+
+    bool freeRedirect() const override { return _freeRedirect; }
+    void freeRedirect(bool v) { _freeRedirect = v; }
 
     // Byte size of the current fetch unit (the bundle).
     Addr size() const { return _bundleSize; }
@@ -79,6 +92,8 @@ class PCState : public GenericISA::UPCState<4>
     {
         _pc = _npc;
         _npc = _pc + _bundleSize;
+        // Describes the transition just taken, not the next one.
+        _freeRedirect = false;
     }
 
     bool

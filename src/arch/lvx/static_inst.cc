@@ -395,11 +395,14 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     // if LC-1 != 0 -> continue at LS, else fall through past LE; decrement LC
     // unless already zero. With LC = trip count, count 0 is skipped at LOOPDO
     // setup, so the zero-count infinite loop of KVX cannot arise here.
+    bool loopBack = false;
     if (misc_reg::ps::hwLoopEnabled() && !branched &&
         fallThrough == tc->readMiscRegNoEffect(misc_reg::LE)) {
         uint64_t lc = tc->readMiscRegNoEffect(misc_reg::LC);
-        if (lc > 1)
+        if (lc > 1) {
             next = tc->readMiscRegNoEffect(misc_reg::LS); // back-edge to loop top
+            loopBack = true;
+        }
         if (lc != 0)
             tc->setMiscReg(misc_reg::LC, lc - 1);
     }
@@ -408,6 +411,11 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     PCState &pc = pcp->as<PCState>();
     pc.bundleSize(bundleBytes);
     pc.npc(next);
+    // The loop engine's back edge costs nothing, so a timing model must not
+    // charge it a taken-branch penalty -- and must not let it run down a
+    // latency still in flight either, since no cycles pass. Set on every
+    // bundle, not only the looping one, so the flag never reads stale.
+    pc.freeRedirect(loopBack);
     xc->pcState(*pcp);
 
     DPRINTF(LvxDecode, "execute bundle @ %#x: %u insn(s), next=%#x\n",

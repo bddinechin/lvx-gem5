@@ -84,10 +84,11 @@ QueuedInst::reportData(std::ostream &os) const
 }
 
 FUPipeline::FUPipeline(const std::string &name, const MinorFU &description_,
-    ClockedObject &timeSource_) :
+    ClockedObject &timeSource_, bool non_blocking) :
     FUPipelineBase(name, "insts", description_.opLat),
     description(description_),
     timeSource(timeSource_),
+    nonBlocking(non_blocking),
     nextInsertCycle(Cycles(0))
 {
     /* Issue latencies are set to 1 in calls to addCapability here.
@@ -169,7 +170,27 @@ FUPipeline::advance()
         /* Don't count stalled cycles as part of the issue latency */
         ++nextInsertCycle;
     }
+
     FUPipelineBase::advance();
+
+    /* A non-blocking FU does not hold a finished instruction for commit.
+     * The base advance has just moved one to the pipeline's end and stalled
+     * the pipeline for it; record on the instruction the cycle commit may
+     * take it from -- the next one, which is exactly the cycle the blocking
+     * model would first show it at the end, i.e. issue + opLat and so the
+     * cycle the scoreboard was marked up with -- and clear the stall.  The
+     * in-flight queue holds the same pointer, so letting the next advance
+     * drop the instruction loses nothing, and the FU is free meanwhile. */
+    if (nonBlocking) {
+        if (isPopable()) {
+            const MinorDynInstPtr &inst = front().inst;
+            if (!inst->fuCompleted) {
+                inst->fuCompleted = true;
+                inst->fuCompleteCycle = Cycles(timeSource.curCycle() + 1);
+            }
+        }
+        stalled = false;
+    }
 }
 
 MinorFUTiming *

@@ -252,8 +252,14 @@ class FUPipeline : public FUPipelineBase, public FuncUnit
     Cycles nextInsertCycle;
 
   public:
+    /** Don't park a finished instruction at the end of the pipeline for
+     *  commit; stamp its completion on it and let the pipeline advance.
+     *  See BaseMinorCPU.py's nonBlockingFuncUnits. */
+    const bool nonBlocking;
+
+  public:
     FUPipeline(const std::string &name, const MinorFU &description_,
-        ClockedObject &timeSource_);
+        ClockedObject &timeSource_, bool non_blocking = false);
 
   public:
     /** How many cycles must from curCycle before insertion into the

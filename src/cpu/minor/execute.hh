@@ -122,6 +122,11 @@ class Execute : public Named
      *  See BaseMinorCPU.py's takenBranchBubble. */
     Cycles takenBranchBubble;
 
+    /** Let an instruction leave its FU as soon as its own opLat has elapsed,
+     *  so a short instruction behind a long one does not block its lane.
+     *  See BaseMinorCPU.py's nonBlockingFuncUnits. */
+    bool nonBlockingFuncUnits;
+
     /** Dcache port to pass on to the CPU.  Execute owns this */
     LSQ lsq;
 

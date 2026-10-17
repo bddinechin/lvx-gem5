@@ -410,6 +410,22 @@ class BaseMinorCPU(BaseCPU):
         2, "Size of LSQ transfers queue (memory transaction queue)"
     )
     executeLSQStoreBufferSize = Param.Unsigned(5, "Size of LSQ store buffer")
+    nonBlockingFuncUnits = Param.Bool(
+        False,
+        "Let an instruction leave its functional unit as soon as its own"
+        " opLat has elapsed, instead of parking it at the FU's end until"
+        " commit takes it.  An FU normally self-stalls the moment an"
+        " instruction reaches its end that in-order commit is not ready for,"
+        " and issue then refuses every later instruction of that class -- so"
+        " one short instruction behind a long one serialises the whole lane"
+        " and nothing can be placed in a long-latency operation's shadow."
+        " With this set the instruction records the cycle it completed and"
+        " waits its turn in the in-flight queue instead, which leaves commit"
+        " in order and the dependence latencies untouched.  Models a machine"
+        " with out-of-order writeback; incompatible with memory references,"
+        " whose LSQ path expects to find them at their FU's end.",
+    )
+
     takenBranchBubble = Param.Cycles(
         0,
         "Cycles for which Execute stops issuing once an instruction has"

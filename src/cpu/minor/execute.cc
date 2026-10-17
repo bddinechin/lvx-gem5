@@ -80,6 +80,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
       allowEarlyMemIssue(params.executeAllowEarlyMemoryIssue),
       noCostFUIndex(fuDescriptions.funcUnits.size() + 1),
       takenBranchBubble(params.takenBranchBubble),
+      nonBlockingFuncUnits(params.nonBlockingFuncUnits),
       lsq(name_ + ".lsq", name_ + ".dcache_port", cpu_, *this,
           params.executeMaxAccessesInMemory, params.executeMemoryWidth,
           params.executeLSQRequestsQueueSize,
@@ -128,6 +129,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
      *  which need to be accounted for in the inFlightInsts
      *  queue */
     unsigned int total_slots = 0;
+    Cycles longest_op_lat = Cycles(0);
 
     /* Make FUPipelines for each MinorFU */
     for (unsigned int i = 0; i < numFuncUnits; i++) {
@@ -138,13 +140,23 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
          *  the inFlightInst queue) and the maximum latency of any FU
          *  (for sizing the activity recorder) */
         total_slots += fu_description->opLat;
+        if (fu_description->opLat > longest_op_lat)
+            longest_op_lat = fu_description->opLat;
 
         fu_name << name_ << ".fu." << i;
 
-        FUPipeline *fu = new FUPipeline(fu_name.str(), *fu_description, cpu);
+        FUPipeline *fu = new FUPipeline(fu_name.str(), *fu_description, cpu,
+            params.nonBlockingFuncUnits);
 
         funcUnits.push_back(fu);
     }
+
+    /* A non-blocking FU hands its instructions on rather than holding them,
+     *  so they wait in the in-flight queue instead: room for everything that
+     *  can issue while the longest operation is outstanding, on top of what
+     *  the pipelines themselves hold. */
+    if (params.nonBlockingFuncUnits)
+        total_slots += longest_op_lat * params.executeIssueLimit;
 
     /** Check that there is a functional unit for all operation classes */
     for (int op_class = No_OpClass + 1; op_class < Num_OpClasses; op_class++) {
@@ -759,6 +771,14 @@ Execute::issue(ThreadID thread_id)
 
                         issued_mem_ref = inst->isMemRef();
 
+                        /* The LSQ path reaches for the instruction at its
+                         * FU's end (see commit's early-mem-issue block), and
+                         * a non-blocking FU has already let it go. */
+                        fatal_if(issued_mem_ref && nonBlockingFuncUnits,
+                            "%s: nonBlockingFuncUnits cannot be used with an"
+                            " ISA that issues memory references through the"
+                            " LSQ (inst: %s)", name(), *inst);
+
                         QueuedInst fu_inst(inst);
 
                         /* Decorate the inst with FU details */
@@ -1326,6 +1346,20 @@ Execute::commit(ThreadID thread_id, bool only_commit_microops, bool discard,
             if (!completed_inst && !inst->inLSQ) {
                 DPRINTF(MinorExecute, "Trying to commit from FUs\n");
 
+                if (nonBlockingFuncUnits) {
+                    /* The instruction left its FU when its own opLat
+                     *  elapsed, stamping the cycle commit may take it from;
+                     *  it has been waiting its turn here rather than holding
+                     *  the FU against everything behind it. */
+                    if (inst->fuCompleted &&
+                        inst->fuCompleteCycle <= cpu.curCycle())
+                    {
+                        try_to_commit = true;
+                        completed_inst = true;
+                    } else {
+                        completed_inst = false;
+                    }
+                } else {
                 /* Try to commit from a functional unit */
                 /* Is the head inst of the expected inst's FU actually the
                  *  expected inst? */
@@ -1348,6 +1382,7 @@ Execute::commit(ThreadID thread_id, bool only_commit_microops, bool discard,
                      *  mem insts before us */
                     try_to_commit = true;
                     completed_inst = true;
+                }
                 }
             }
 
@@ -1426,7 +1461,9 @@ Execute::commit(ThreadID thread_id, bool only_commit_microops, bool discard,
                      *  instruction wasn't the inFlightInsts head
                      *  but had already been committed, it would have
                      *  unstalled the pipeline before here */
-                    if (inst->fuIndex != noCostFUIndex) {
+                    if (inst->fuIndex != noCostFUIndex &&
+                        !nonBlockingFuncUnits)
+                    {
                         DPRINTF(MinorExecute, "Unstalling %d for inst %s\n", inst->fuIndex, inst->id);
                         funcUnits[inst->fuIndex]->stalled = false;
                     }
@@ -1679,6 +1716,13 @@ Execute::evaluate()
 
             if (head_inst.inst->isNoCostInst()) {
                 head_inst_might_commit = true;
+            } else if (nonBlockingFuncUnits) {
+                if (head_inst.inst->fuCompleted ||
+                    lsq.findResponse(head_inst.inst))
+                {
+                    head_inst_might_commit = true;
+                    break;
+                }
             } else {
                 FUPipeline *fu = funcUnits[head_inst.inst->fuIndex];
                 if ((fu->stalled &&
@@ -1852,9 +1896,17 @@ Execute::getCommittingThread()
                 if (can_commit_insts && !can_transfer_mem_inst &&
                         inst->fuIndex != noCostFUIndex)
                 {
-                    QueuedInst& fu_inst = funcUnits[inst->fuIndex]->front();
-                    can_execute_fu_inst = !fu_inst.inst->isBubble() &&
-                        fu_inst.inst->id == inst->id;
+                    if (nonBlockingFuncUnits) {
+                        /* The instruction is not parked at its FU's end any
+                         *  more; it carries the cycle it completed. */
+                        can_execute_fu_inst = inst->fuCompleted &&
+                            inst->fuCompleteCycle <= cpu.curCycle();
+                    } else {
+                        QueuedInst& fu_inst =
+                            funcUnits[inst->fuIndex]->front();
+                        can_execute_fu_inst = !fu_inst.inst->isBubble() &&
+                            fu_inst.inst->id == inst->id;
+                    }
                 }
 
                 can_commit_insts = can_commit_insts &&

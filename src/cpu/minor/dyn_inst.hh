@@ -196,6 +196,14 @@ class MinorDynInst : public RefCounted
     /** FU this instruction is issued to */
     unsigned int fuIndex = 0;
 
+    /** Set when the instruction has left its functional unit under
+     *  Execute's nonBlockingFuncUnits, with the cycle from which commit may
+     *  take it (issue + opLat, the same cycle it would have become visible
+     *  at the FU's end).  Unused in the default, blocking model, where the
+     *  instruction's presence at that end is the signal. */
+    bool fuCompleted = false;
+    Cycles fuCompleteCycle{0};
+
     /** Cycle in which this instruction issued.  Set by Execute::issue, and
      *  distinct from the cycle it is committed in: an instruction behind a
      *  long-latency one in the in-order commit queue can wait many cycles

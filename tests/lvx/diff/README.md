@@ -105,6 +105,15 @@ ever anchored at the branch's *commit* rather than its issue, since in-order
 commit holds the branch behind the load and a commit-anchored bubble lands
 after the latency it should have vanished into.
 
+The last two assertions are about *lanes*. A 128-bit value lives in an aligned
+GPR pair and a 256-bit one in a quad, so `lq $r2r3` writes two general
+registers and `lo $r4r5r6r7` four, and a scalar read of any one of them depends
+on the load. `timing_tuple.s` uses all six -- both halves of the pair, all four
+lanes of the quad -- so a lane missing from the port's tuple expansion costs a
+sixth of the measured time. Verified against the negative control too: with the
+use reading a register *outside* the tuple the same loop costs 2.45 cycles a
+copy, against 4.25 when it reads a lane.
+
 `check_ownership.sh` is the odd one: everything else here runs at PL0, where the
 ownership model is invisible by construction, so its two programs leave PL0 on
 purpose. `ownership.s` covers the refusals that are not traps (`$men` reads back at

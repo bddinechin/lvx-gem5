@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Seven assertions, each exact, each failing alone if its piece regresses:
+# Nine assertions, each exact, each failing alone if its piece regresses:
 #
 #   1. a loop with no dependence stalls costs minTaken per taken branch --
 #      measured as the difference between running the same binary with the
@@ -42,6 +42,12 @@
 #      latency it was supposed to disappear into and costs the full minTaken.
 #   5. and the branch-free loop whose recurrence is a load is bubble-invariant
 #      too, for the same reason.
+#   6. a *wide* load's first use is one register of the tuple it wrote, and
+#      stalls for the same whole latency -- both halves of the pair `lq'
+#      writes and all four lanes of the quad `lo' writes.  A 128- or 256-bit
+#      value lives in an aligned GPR tuple, so the dependency only exists if
+#      the port expands the tuple operand into its member GPRs; one lane
+#      missing from the expansion shows up as a sixth of the cost gone.
 #
 # Env: LVX_TOOLCHAIN_BIN  GEM5  LVX_STAGES (the generated lvx_stages.py)
 #
@@ -72,6 +78,7 @@ UNCACHED_EXTRA=$(( STAGE_SR - STAGE_CR ))     # 15 - 3: what the variant costs
 TRIPS=1000      # must match .equ TRIPS in timing_alu.s
 ALU_BUNDLES=8   # bundles per trip of timing_alu.s
 COPIES=1000     # TRIPS * UNROLL in timing_ld.s: load/use pairs executed
+TUPLES=3000     # TRIPS * UNROLL * 6 in timing_tuple.s: tuple-lane load/use pairs
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
@@ -114,12 +121,18 @@ build timing_ld  ldu --defsym UNCACHED=1 \
                                || { echo "timing_ld.u build failed"; exit 2; }
 build timing_ld  ldb --defsym UNCACHED=1 --defsym BRANCH=1 \
                                || { echo "timing_ld.u+br build failed"; exit 2; }
+build timing_tuple tpc         || { echo "timing_tuple build failed"; exit 2; }
+build timing_tuple tpu --defsym UNCACHED=1 \
+                               || { echo "timing_tuple.u build failed"; exit 2; }
 
 alu0="$(cycles alu 0)";  alu="$(cycles alu "$MIN_TAKEN")"
 ldc0="$(cycles ldc 0)";  ldc="$(cycles ldc "$MIN_TAKEN")"
 ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
-for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb"; do
+tpc="$(cycles tpc "$MIN_TAKEN")"
+tpu="$(cycles tpu "$MIN_TAKEN")"
+for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
+         "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
 
@@ -149,11 +162,20 @@ report "taken branch before first use is free" "$ldb" "$ldb0"
 report "branch stall dangles against ld"   "$ldc" "$ldc0"
 report "branch stall dangles against ld.u" "$ldu" "$ldu0"
 
+# 6. a wide load's lanes: a scalar read of any one register of the pair `lq'
+#    wrote, or of the quad `lo' wrote, waits the whole latency.
+per_tuple() { echo $(( ($1 + TUPLES / 2) / TUPLES )); }
+report "lq/lo lane use costs 1+(CR-RR)" \
+       "$(per_tuple "$tpc")" "$(( 1 + STAGE_CR - STAGE_RR ))"
+report "lq.u/lo.u lane use costs 1+(SR-RR)" \
+       "$(per_tuple "$tpu")" "$(( 1 + STAGE_SR - STAGE_RR ))"
+
 echo "----"
 printf 'minTaken=%s  RR=%s CR=%s SR=%s  (uncached load latency %s, cached %s)\n' \
     "$MIN_TAKEN" "$STAGE_RR" "$STAGE_CR" "$STAGE_SR" \
     $(( STAGE_SR - STAGE_RR )) $(( STAGE_CR - STAGE_RR ))
 printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
+printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s\n' "$tpc" "$tpu"
 [ $rc -eq 0 ] && echo "check_timing: PASS" || echo "check_timing: FAIL"
 exit $rc

@@ -85,7 +85,8 @@ a `check_*.sh` in this directory: `check_highmult.sh` (the four `muld` variants)
 `check_fp.sh` / `check_fpn.sh` / `check_fcomp.sh` / `check_conv.sh` (the scalar FP
 surface), `check_ccb.sh` (the fused compare-and-branch predicates), `check_xvr.sh`
 (the lvx-2 vector moves), **`check_ownership.sh`** (system-register ownership) and
-**`check_timing.sh`** (the taken-branch penalty and the load variants' latency).
+**`check_timing.sh`** (the taken-branch penalty and the load variants' latency)
+and **`check_decode_cache.sh`** (that a cached bundle is still PC-relative).
 
 **`check_timing.sh`** is the odd one in the other direction: it checks *cycles*
 rather than results, so it is the only script here that needs `LVX_CPU=minor`
@@ -121,6 +122,17 @@ lanes of the quad -- so a lane missing from the port's tuple expansion costs a
 sixth of the measured time. Verified against the negative control too: with the
 use reading a register *outside* the tuple the same loop costs 2.45 cycles a
 copy, against 4.25 when it reads a lane.
+
+**`check_decode_cache.sh`** guards the one thing the decode cache risks. The
+decoder caches a decoded bundle by its syllables, so a single `LvxStaticInst`
+is now shared by every address those bytes appear at -- sound only because
+nothing in a decoded bundle is absolute, each sub-instruction holding its byte
+offset *within* the bundle while the PC comes from the execution context. The
+fixture is two byte-identical `goto` bundles at different addresses, each of
+which must reach its own target; the differential harness cannot see this,
+since it compares against x86 and so cannot say which LVX address a branch
+reached. The script checks the two bundles really are byte-identical before
+believing the result, so the fixture cannot quietly stop testing anything.
 
 `check_ownership.sh` is the odd one: everything else here runs at PL0, where the
 ownership model is invisible by construction, so its two programs leave PL0 on

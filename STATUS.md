@@ -149,6 +149,21 @@ Still open, in order of size:
 - **`XVR` and the RISC-V `RV` register file are still untracked**, so an
   extension-unit or RV64G dependence stalls nothing.
 
+### Simulation speed
+
+`Decoder::decode` used to build a fresh `LvxStaticInst` on **every fetch** --
+splitting the bundle by steering, reassembling IMMX, running the generated
+operand decode per instruction and building the bundle's register lists -- so
+a loop paid for its body's decode on every trip, and anything added to that
+constructor was paid per dynamic instruction. Since 2026-10-17 it goes through
+`GenericISA::BasicDecodeCache`, keyed on `ExtMachInst`, whose `operator==` and
+`std::hash` the port had carried unused since it was written. Worth
+**1.14-1.28x** of host instruction rate, measured under the atomic CPU on both
+microbenchmarks and real compiled code (`divmodvx`: 603k -> 770k inst/s), and
+it changes no cycle count -- verified identical on twelve programs.
+`tests/lvx/diff/check_decode_cache.sh` pins the property that makes the
+sharing sound.
+
 ### Behavior helpers
 
 **25 helpers remain panic stubs on `lvx_v2`** (the superset core), 22 on `lvx_v1`

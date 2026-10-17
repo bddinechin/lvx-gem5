@@ -69,7 +69,7 @@ Decoder::moreBytes(const PCStateBase &pc, Addr fetchPC)
 }
 
 StaticInstPtr
-Decoder::decode(ExtMachInst mach_inst, Addr addr)
+Decoder::decodeInst(ExtMachInst mach_inst)
 {
     return new LvxStaticInst(mach_inst);
 }

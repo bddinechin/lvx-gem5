@@ -11,6 +11,7 @@
 #ifndef __ARCH_LVX_DECODER_HH__
 #define __ARCH_LVX_DECODER_HH__
 
+#include "arch/generic/decode_cache.hh"
 #include "arch/generic/decoder.hh"
 #include "arch/lvx/pcstate.hh"
 #include "arch/lvx/types.hh"
@@ -30,7 +31,30 @@ class Decoder : public InstDecoder
     MachInst machInst = 0;   // moreBytes() buffer: one 32-bit syllable
     ExtMachInst emi;         // instruction being assembled
 
-    StaticInstPtr decode(ExtMachInst mach_inst, Addr addr);
+    // Decoding a bundle is not cheap -- split it into instructions by
+    // steering, reassemble the IMMX extensions, run the generated operand
+    // decode for each, and build the bundle's register lists -- and it is a
+    // pure function of the syllables: an LvxStaticInst holds each
+    // sub-instruction's byte offset *within* the bundle, never an address, so
+    // the same bytes decode the same at every PC. Until 2026-10-17 it was
+    // redone on every fetch all the same, which is what made a loop pay for
+    // its body's decode on every trip.
+    //
+    // ExtMachInst has had operator== and a std::hash since the port was
+    // written, for exactly this and unused until now; they compare and hash
+    // nsyll, rv and the live syllables only, so a stale word past the end of
+    // a short bundle cannot make two equal bundles miss.
+    GenericISA::BasicDecodeCache<Decoder, ExtMachInst> defaultCache;
+    friend class GenericISA::BasicDecodeCache<Decoder, ExtMachInst>;
+
+    /// Decode a bundle, for real. Called by the cache on a miss.
+    StaticInstPtr decodeInst(ExtMachInst mach_inst);
+
+    StaticInstPtr
+    decode(ExtMachInst mach_inst, Addr addr)
+    {
+        return defaultCache.decode(this, mach_inst, addr);
+    }
 
   public:
     Decoder(const LvxDecoderParams &p);

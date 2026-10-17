@@ -102,6 +102,13 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+The **load shadow** landed 2026-10-17: `LvxMinorCPU` sets MinorCPU's new
+`nonBlockingFuncUnits`, so an instruction leaves its functional unit when its
+own latency expires instead of holding it against everything behind it. Work
+placed in a long operation's shadow now costs nothing, which it could not
+before — see `docs/register-buffer-deps.md`, *Implementing a load shadow*,
+for why two other candidate fixes do not work.
+
 Three timing defects were fixed on 2026-10-16 and one named, all in
 `docs/register-buffer-deps.md` and
 `../docs/handoff-mds-load-variants.md`; `tests/lvx/diff/check_timing.sh`
@@ -114,17 +121,6 @@ result latency elapses against rather than adding to.
 
 Still open, in order of size:
 
-- **There is no load shadow.** MinorCPU drains its functional units in commit
-  order, so an instruction that finishes early behind a long-latency one stalls
-  its own FU. Independent work between an `ld.u` and its first use therefore
-  does not overlap the load: `ld.u; N fillers; use` costs `15 + N + 1`, where
-  the architecture says `max(N + 1, 15) + 1`. The latency is charged correctly;
-  scheduling around it earns nothing. The cause is that a MinorCPU FU stalls as
-  soon as an instruction reaches its end and in-order commit has not taken it,
-  so one short instruction behind a long one serialises its whole lane — *not*
-  the bundle granularity, so the micro-op split does not fix it. Three
-  candidate fixes, one of them a trap, are worked out with measurements in
-  `docs/register-buffer-deps.md`, *Implementing a load shadow*.
 - **The hardware-loop back edge costs ~6 cycles instead of 1.** It is invisible
   to Minor's branch predictor (the bundle holds no branch), so every back edge
   is an unpredicted redirect paying the full front-end refill — which makes a

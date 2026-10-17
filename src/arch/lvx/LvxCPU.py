@@ -101,3 +101,17 @@ class LvxMinorCPU(BaseMinorCPU, LvxCPU):
     # pays Minor's refill -- first execution of each branch and each loop exit,
     # so a warm loop is unaffected.
     takenBranchBubble = LVX_MIN_TAKEN
+    # LVX writes each result at its own pipeline stage (E1 … SR) and interlocks
+    # the consumer -- out-of-order writeback with in-order issue -- which is the
+    # whole premise of scheduling independent work into a long operation's
+    # shadow. MinorCPU's default is in-order writeback: an FU self-stalls the
+    # moment an instruction reaches its end that in-order commit is not ready
+    # for, and one 1-cycle addd behind a 15-cycle ld.u then blocks every later
+    # ALU instruction. So there was no shadow at all -- `ld.u; N fillers; use'
+    # cost 15 + N + 1 where the machine costs max(N + 1, 15) + 1, and an
+    # *independent* instruction after an uncached load cost 8.4 cycles instead
+    # of 1. With this the instruction leaves its FU when its own latency
+    # expires and waits its turn in the in-flight queue, commit staying in
+    # order; the dependence latencies, the taken-branch penalty and the
+    # hardware-loop cost are all unchanged, measurably.
+    nonBlockingFuncUnits = True

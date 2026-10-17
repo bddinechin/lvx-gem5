@@ -97,8 +97,17 @@
 >   taken branch, measured. All of it is pinned by
 >   `tests/lvx/diff/check_timing.sh`.
 >
-> **Still wrong, and the reason a long latency cannot be *scheduled* around:
-> MinorCPU drains its functional units in commit order.** An instruction that
+> **Fixed 2026-10-17: a long latency can be scheduled around.**
+> `nonBlockingFuncUnits` (new, default off, set by `LvxMinorCPU`) is the third
+> option below, and it measures exactly right: the sweep plateaus to N = 14 and
+> then takes slope 1, and an instruction merely *following* an uncached load
+> went from 8.4 cycles to 2.3. `minTaken`, the hardware-loop back edge and
+> every dependent case are unchanged to within a cycle, which is what separates
+> it from the uniform-depth option. What follows is the diagnosis, kept because
+> two of the three candidate fixes do not work and the reasons are worth having.
+>
+> **The defect was that MinorCPU drains its functional units in commit
+> order.** An instruction that
 > reaches the end of a short FU while a long-latency one is still ahead of it
 > in the in-order commit queue cannot retire, so it stalls its own FU and
 > blocks every later instruction of that class. The consequence is that there
@@ -183,7 +192,7 @@
 >   redirect pays a 15-cycle refill, which takes the hardware-loop back edge
 >   from 6.1 to 20.2 cycles a trip. Not a net win on its own.
 >
-> - **Non-blocking functional units** — the recommended fix. Let an
+> - **Non-blocking functional units** — the fix taken. Let an
 >   instruction leave its FU after its own `opLat`, stamping a completion cycle
 >   on the `MinorDynInst`, and change commit's readiness test from "at the end
 >   of its FU" to "completed, and not later than now". Commit stays in order,

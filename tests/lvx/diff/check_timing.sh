@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Nine assertions, each exact, each failing alone if its piece regresses:
+# Ten assertions, each exact, each failing alone if its piece regresses:
 #
 #   1. a loop with no dependence stalls costs minTaken per taken branch --
 #      measured as the difference between running the same binary with the
@@ -42,7 +42,17 @@
 #      latency it was supposed to disappear into and costs the full minTaken.
 #   5. and the branch-free loop whose recurrence is a load is bubble-invariant
 #      too, for the same reason.
-#   6. a *wide* load's first use is one register of the tuple it wrote, and
+#   6. the load's *shadow* is fillable: eight independent bundles between the
+#      load and its first use cost less than one cycle a copy between them,
+#      the load's latency covering all eight.  Stated as a bound rather than
+#      an equality because this fixture's loop body is ten bundles a copy and
+#      its own overhead is a few tenths; the thing it excludes is not subtle,
+#      being eight cycles a copy.  MinorCPU's default is in-order writeback --
+#      an FU self-stalls the moment an instruction reaches its end that
+#      in-order commit is not ready for -- so without nonBlockingFuncUnits
+#      one short instruction behind a long one serialises its whole lane and
+#      the eight fillers cost the full eight.
+#   7. a *wide* load's first use is one register of the tuple it wrote, and
 #      stalls for the same whole latency -- both halves of the pair `lq'
 #      writes and all four lanes of the quad `lo' writes.  A 128- or 256-bit
 #      value lives in an aligned GPR tuple, so the dependency only exists if
@@ -115,12 +125,26 @@ report() { # report <name> <got> <want>
 per_trip() { echo $(( ($1 + TRIPS / 2) / TRIPS )); }
 per_copy() { echo $(( ($1 + COPIES / 2) / COPIES )); }
 
+# Hundredths of a cycle per copy, for the one assertion stated as a bound.
+hundredths_per_copy() { echo $(( ($1 * 100 + COPIES / 2) / COPIES )); }
+report_under() { # report_under <name> <hundredths> <limit in hundredths>
+    if [ "$2" -lt "$3" ]; then
+        printf '%-46s PASS (%s.%02d/copy)\n' "$1" $(( $2 / 100 )) $(( $2 % 100 ))
+    else
+        printf '%-46s FAIL (%s.%02d/copy, want under %s.%02d)\n' "$1" \
+            $(( $2 / 100 )) $(( $2 % 100 )) $(( $3 / 100 )) $(( $3 % 100 ))
+        rc=1
+    fi
+}
+
 build timing_alu alu           || { echo "timing_alu build failed";  exit 2; }
 build timing_ld  ldc           || { echo "timing_ld build failed";   exit 2; }
 build timing_ld  ldu --defsym UNCACHED=1 \
                                || { echo "timing_ld.u build failed"; exit 2; }
 build timing_ld  ldb --defsym UNCACHED=1 --defsym BRANCH=1 \
                                || { echo "timing_ld.u+br build failed"; exit 2; }
+build timing_ld  ldf --defsym UNCACHED=1 --defsym FILLERS=1 \
+                               || { echo "timing_ld.u+fillers build failed"; exit 2; }
 build timing_tuple tpc         || { echo "timing_tuple build failed"; exit 2; }
 build timing_tuple tpu --defsym UNCACHED=1 \
                                || { echo "timing_tuple.u build failed"; exit 2; }
@@ -129,10 +153,11 @@ alu0="$(cycles alu 0)";  alu="$(cycles alu "$MIN_TAKEN")"
 ldc0="$(cycles ldc 0)";  ldc="$(cycles ldc "$MIN_TAKEN")"
 ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
+ldf="$(cycles ldf "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
 for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
-         "$tpc" "$tpu"; do
+         "$ldf" "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
 
@@ -162,7 +187,12 @@ report "taken branch before first use is free" "$ldb" "$ldb0"
 report "branch stall dangles against ld"   "$ldc" "$ldc0"
 report "branch stall dangles against ld.u" "$ldu" "$ldu0"
 
-# 6. a wide load's lanes: a scalar read of any one register of the pair `lq'
+# 6. the shadow: eight independent bundles between the load and its use cost
+#    nothing, the load's latency covering them.
+report_under "8 bundles fit in ld.u's shadow" \
+       "$(hundredths_per_copy $(( ldf - ldu )))" 100
+
+# 7. a wide load's lanes: a scalar read of any one register of the pair `lq'
 #    wrote, or of the quad `lo' wrote, waits the whole latency.
 per_tuple() { echo $(( ($1 + TUPLES / 2) / TUPLES )); }
 report "lq/lo lane use costs 1+(CR-RR)" \
@@ -176,6 +206,7 @@ printf 'minTaken=%s  RR=%s CR=%s SR=%s  (uncached load latency %s, cached %s)\n'
     $(( STAGE_SR - STAGE_RR )) $(( STAGE_CR - STAGE_RR ))
 printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
-printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s\n' "$tpc" "$tpu"
+printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \
+    "$tpc" "$tpu" "$ldf"
 [ $rc -eq 0 ] && echo "check_timing: PASS" || echo "check_timing: FAIL"
 exit $rc

@@ -20,6 +20,12 @@
 	#   --defsym UNCACHED=1 --defsym BRANCH=1
 	#                            the same, with a taken branch between the load
 	#                            and its first use
+	#   --defsym UNCACHED=1 --defsym FILLERS=1
+	#                            the same, with eight *independent* bundles
+	#                            between the load and its first use -- the
+	#                            load's shadow, which they have to disappear
+	#                            into: a copy still costs one load latency, not
+	#                            a latency plus eight
 	#
 	# The third is the one that says the taken-branch penalty is a *delay to
 	# issue* and not a surcharge: the branch issues while the load is still in
@@ -58,6 +64,27 @@ _start:
 	addd $r31 = $r31, 1	# jumped over, never executed
 	;;
 8:
+.endif
+.ifdef FILLERS
+	# Independent of the load and of each other, so the only thing that can
+	# delay the use below is the load itself.  Eight of them: fewer than the
+	# uncached latency, so they fit in its shadow and cost nothing.
+	addd $r20 = $r20, 1
+	;;
+	addd $r21 = $r21, 1
+	;;
+	addd $r22 = $r22, 1
+	;;
+	addd $r23 = $r23, 1
+	;;
+	addd $r24 = $r24, 1
+	;;
+	addd $r25 = $r25, 1
+	;;
+	addd $r26 = $r26, 1
+	;;
+	addd $r27 = $r27, 1
+	;;
 .endif
 	addd $r3 = $r3, $r2	# first use of the loaded value
 	;;

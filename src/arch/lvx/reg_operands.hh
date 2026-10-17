@@ -48,6 +48,14 @@ struct LvxRegOperand
     unsigned char  file;
     signed char    slot;
     unsigned short fixed;
+    // On a source: cycles before its producer's result is ready that this
+    // operand may be read -- its read stage minus RR. 0 for an operand read
+    // at RR, which is nearly all of them; 1 for a store's stored value, an
+    // atomic's, and the integer MAC's accumulator, which are read at E1. So
+    // an `ffmaw' (writing at E4) feeding a store is three cycles away, not
+    // four, which is what lvx-gcc states as a define_bypass. Always 0 on a
+    // destination.
+    unsigned char  relLat;
 };
 
 // Per-opcode source and destination register operands, plus the result's

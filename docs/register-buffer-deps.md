@@ -140,15 +140,31 @@
 > `LE`, a run-time register — and so not expressible through `StaticInst`
 > flags. Untouched by the above; `LVX_TAKEN_BUBBLE=0` reproduces it exactly.
 >
-> **Read stage is per-source, and currently approximated.** The true latency is
+> **Read stage is per-source — implemented 2026-10-17.** The true latency is
 > `writeStage(producer) - readStage(that consumer's source)`. Most sources are
-> read at RR, but a **store's stored value** and a **`MADD*` accumulator** are
-> read at `E1`, so their incoming edges are 1 cycle shorter. The model assumes RR
-> for every source — **conservative** (never under-estimates; those edges
-> over-stall by exactly `E1-RR=1`). gem5 *can* model it, via `srcRegsRelativeLats
-> = readStage - RR`, but only per-FU via `MinorFUTiming`'s mask/match on the raw
-> instruction bits (which gem5 itself calls "a bit of a hack"), and per-source
-> position — so it needs the bundle split into per-sub-instruction **micro-ops**.
+> read at RR, but a **store's stored value**, an **atomic's**, and the
+> **integer MAC's accumulator** are read at `E1`, so the edges into those are
+> one cycle shorter — which lvx-gcc states as a `define_bypass` per producer
+> class and the ISS used to ignore, over-stalling each by exactly one.
+> `reg-operands.pl` already parsed the read stage out of
+> `operandFromRegFile_*(this, STAGE, …)` and threw it away for reads; it now
+> emits it as `relLat = readStage - RR` per source operand (323 lvx_v2 opcodes
+> have one), `setUpRegs` folds it into a per-source vector — taking the
+> **minimum** over the sub-instructions that read a register, the earliest
+> reader being the binding one — and `StaticInst::srcRegsRelativeLats()` (new,
+> null by default) hands it to `Scoreboard::canInstIssue`, which already knew
+> how to apply such a relaxation. Measured: an `fmulw` feeding a store is 3
+> cycles away against 4 for an ordinary consumer, and a self-accumulating
+> `maddw` chain costs 1 cycle a step against the 2 of a `mulw` chain.
+>
+> This paragraph used to say the fix needed the **micro-op split**, on the
+> grounds that `srcRegsRelativeLats` was reachable only per-FU through
+> `MinorFUTiming`'s mask/match on raw instruction bits. That was too
+> pessimistic twice over: the vector can ride on the instruction instead, and
+> a bundle-wide source list is not an obstacle once the minimum is taken. What
+> genuinely still needs micro-ops is the **destination** side — a bundle
+> holding both an `ffmaw` and an `addd` marks both results ready at the
+> bundle's maximum latency.
 >
 > ## Implementing a load shadow
 >

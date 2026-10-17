@@ -102,6 +102,12 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**Per-operand read stages** landed 2026-10-17 too: a store's stored value, an
+atomic's, and the integer MAC's accumulator are read at E1 rather than RR, so
+the dependence into them is a cycle shorter — what lvx-gcc writes as a
+`define_bypass`. An `fmulw` feeding a store is now 3 cycles away, not 4, and a
+self-accumulating `maddw` chain costs 1 a step, not 2.
+
 The **load shadow** landed 2026-10-17: `LvxMinorCPU` sets MinorCPU's new
 `nonBlockingFuncUnits`, so an instruction leaves its functional unit when its
 own latency expires instead of holding it against everything behind it. Work
@@ -136,10 +142,10 @@ Still open, in order of size:
   predictor is kept on deliberately, as a stand-in for an LVX fetch engine that
   keeps up; the residue is the first execution of each branch and each loop
   exit, so a warm loop is unaffected.
-- **The read stage is assumed to be RR for every source**, where a store's
-  stored value and a `MADD*` accumulator are read at E1 — conservative by one
-  cycle on those edges. Needs the bundle split into micro-ops; see
-  `docs/register-buffer-deps.md`.
+- **A result's latency is the whole bundle's**, so a bundle holding both an
+  `ffmaw` and an `addd` marks both ready at the maximum of the two. This is
+  the destination counterpart of the per-source read stages (done), and the
+  one thing in this list that does need the micro-op split.
 - **`XVR` and the RISC-V `RV` register file are still untracked**, so an
   extension-unit or RV64G dependence stalls nothing.
 

@@ -10,6 +10,8 @@
 #ifndef __ARCH_LVX_STATIC_INST_HH__
 #define __ARCH_LVX_STATIC_INST_HH__
 
+#include <vector>
+
 #include "arch/lvx/types.hh"
 #include "cpu/reg_class.hh"
 #include "cpu/static_inst.hh"
@@ -67,11 +69,22 @@ class LvxStaticInst : public StaticInst
     RegId srcRegIdxArr[MaxBundleSrcRegs];
     RegId destRegIdxArr[MaxBundleDestRegs];
 
+    // Per-source relative latency, parallel to srcRegIdxArr: see
+    // StaticInst::srcRegsRelativeLats. Empty unless some operand of this
+    // bundle is read later than RR, so the common bundle costs nothing.
+    std::vector<Cycles> srcRelLats;
+
     // Populate the src/dest register lists from the generated lvx_reg_deps table.
     void setUpRegs();
 
   public:
     LvxStaticInst(const ExtMachInst &emi);
+
+    const std::vector<Cycles> *
+    srcRegsRelativeLats() const override
+    {
+        return srcRelLats.empty() ? nullptr : &srcRelLats;
+    }
 
     Fault execute(ExecContext *xc,
                   trace::InstRecord *traceData) const override;

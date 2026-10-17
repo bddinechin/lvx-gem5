@@ -247,7 +247,14 @@ LvxStaticInst::setUpRegs()
             ? (RegIndex)(decoded[o.slot] - Register_lvx_R0) : o.fixed;
         fn(intRegClass[i]);
     };
-    auto add = [&](const RegId &r, bool dest) {
+    // Per-source relative latency, built alongside the source list. A
+    // register read by two instructions of the bundle is one dependency, and
+    // the binding constraint is the *earliest* of their read stages -- so the
+    // relaxation is the minimum, not the maximum: a register that is some
+    // store's value but also somebody's address relaxes by nothing.
+    unsigned char relLat[MaxBundleSrcRegs] = {};
+
+    auto add = [&](const RegId &r, bool dest, unsigned char rel = 0) {
         // Dedup: a register read/written by two instructions of the bundle is one
         // dependency, and dropping the duplicate keeps a valid WAW off the list.
         // Overflow panics rather than truncating: a dropped dependency is a
@@ -263,10 +270,14 @@ LvxStaticInst::setUpRegs()
             setDestRegIdx(_numDestRegs++, r);
         } else {
             for (int i = 0; i < _numSrcRegs; ++i)
-                if (srcRegIdxArr[i] == r) return;
+                if (srcRegIdxArr[i] == r) {
+                    if (rel < relLat[i]) relLat[i] = rel;
+                    return;
+                }
             panic_if(_numSrcRegs >= (int)MaxBundleSrcRegs,
                      "LVX bundle has more than %u source registers",
                      MaxBundleSrcRegs);
+            relLat[_numSrcRegs] = rel;
             setSrcRegIdx(_numSrcRegs++, r);
         }
     };
@@ -277,10 +288,12 @@ LvxStaticInst::setUpRegs()
         if (si.opcode >= (unsigned)Opcode__NUM)
             continue;
         const LvxRegDeps &d = lvx_reg_deps[si.opcode];
-        auto addSrc = [&](const RegId &r) { add(r, false); };
         auto addDst = [&](const RegId &r) { add(r, true); };
-        for (unsigned k = 0; k < d.nsrc; ++k)
-            forEachReg(d.src[k], si.decoded, addSrc);
+        for (unsigned k = 0; k < d.nsrc; ++k) {
+            const unsigned char rel = d.src[k].relLat;
+            forEachReg(d.src[k], si.decoded,
+                       [&](const RegId &r) { add(r, false, rel); });
+        }
         for (unsigned k = 0; k < d.ndst; ++k)
             forEachReg(d.dst[k], si.decoded, addDst);
 
@@ -318,6 +331,19 @@ LvxStaticInst::setUpRegs()
              : lat >= LVX_STAGE_E3 - LVX_STAGE_RR ? FloatAddOp
              : lat >= LVX_STAGE_E2 - LVX_STAGE_RR ? IntMultOp
              :                                       IntAluOp;
+
+    // Publish the relaxations only if there are any, so an ordinary bundle
+    // keeps the default (null) path and allocates nothing.
+    bool anyRelaxed = false;
+    for (int i = 0; i < _numSrcRegs; ++i)
+        if (relLat[i]) anyRelaxed = true;
+    if (anyRelaxed) {
+        srcRelLats.resize(_numSrcRegs);
+        for (int i = 0; i < _numSrcRegs; ++i)
+            srcRelLats[i] = Cycles(relLat[i]);
+    } else {
+        srcRelLats.clear();
+    }
 
     if (debug::LvxRegs) {
         std::stringstream ss;

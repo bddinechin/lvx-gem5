@@ -105,6 +105,14 @@ ever anchored at the branch's *commit* rather than its issue, since in-order
 commit holds the branch behind the load and a commit-anchored bubble lands
 after the latency it should have vanished into.
 
+Four assertions are about operands read *later* than RR -- a store's stored
+value and the integer MAC's accumulator, at E1 -- which shorten the dependence
+into them by a cycle, lvx-gcc's `define_bypass` seen from the other side. Each
+is measured against its own control of the same shape reading at RR, so no
+per-opcode latency is written down, and the two controls are themselves checked
+against the generated stage enum. The `maddw` one is the sharp case: 1 cycle a
+step against the control's 2, so a regression halves nothing quietly.
+
 The last two assertions are about *lanes*. A 128-bit value lives in an aligned
 GPR pair and a 256-bit one in a quad, so `lq $r2r3` writes two general
 registers and `lo $r4r5r6r7` four, and a scalar read of any one of them depends

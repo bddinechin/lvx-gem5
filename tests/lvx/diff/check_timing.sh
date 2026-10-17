@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Thirteen assertions, each exact, each failing alone if its piece regresses:
+# Seventeen assertions, each exact, each failing alone if its piece regresses:
 #
 #   1. a loop with no dependence stalls costs minTaken per taken branch --
 #      measured as the difference between running the same binary with the
@@ -55,7 +55,13 @@
 #   7. a hardware loop's back edge costs nothing, even when the bundle LE
 #      falls off holds a BCU instruction.  The loop engine takes that edge,
 #      not a branch, so no penalty and no elapsing of anything in flight.
-#   8. a *wide* load's first use is one register of the tuple it wrote, and
+#   8. an operand read later than RR shortens the dependence into it: a
+#      store's stored value and the integer MAC's accumulator are read at E1,
+#      so a producer feeding one is a cycle closer than its latency says.
+#      Each is measured against its own control -- the same shape reading at
+#      RR -- so neither needs a per-opcode latency written down here, and the
+#      two controls are themselves checked against the stage enum.
+#   9. a *wide* load's first use is one register of the tuple it wrote, and
 #      stalls for the same whole latency -- both halves of the pair `lq'
 #      writes and all four lanes of the quad `lo' writes.  A 128- or 256-bit
 #      value lives in an aligned GPR tuple, so the dependency only exists if
@@ -84,6 +90,8 @@ val() { grep -E "^$1 = " "$STAGES" | head -1 | sed 's/.*= //'; }
 MIN_TAKEN="$(val LVX_MIN_TAKEN)"
 STAGE_RR="$(val LVX_STAGE_RR)"
 STAGE_CR="$(val LVX_STAGE_CR)"
+STAGE_E2="$(val LVX_STAGE_E2)"
+STAGE_E4="$(val LVX_STAGE_E4)"
 STAGE_SR="$(val LVX_STAGE_SR)"
 [ -n "$MIN_TAKEN" ] && [ -n "$STAGE_SR" ] || { echo "cannot read $STAGES"; exit 2; }
 UNCACHED_EXTRA=$(( STAGE_SR - STAGE_CR ))     # 15 - 3: what the variant costs
@@ -94,6 +102,7 @@ COPIES=1000     # TRIPS * UNROLL in timing_ld.s: load/use pairs executed
 TUPLES=3000     # TRIPS * UNROLL * 6 in timing_tuple.s: tuple-lane load/use pairs
 HWTRIPS=1000    # .equ TRIPS in timing_hwloop.s
 HWBUNDLES=7     # bundles in its loop body
+STEPS=20000     # TRIPS * UNROLL in timing_bypass.s
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
@@ -151,6 +160,13 @@ build timing_ld  ldb --defsym UNCACHED=1 --defsym BRANCH=1 \
 build timing_ld  ldf --defsym UNCACHED=1 --defsym FILLERS=1 \
                                || { echo "timing_ld.u+fillers build failed"; exit 2; }
 build timing_hwloop hwl        || { echo "timing_hwloop build failed"; exit 2; }
+build timing_bypass bpmul      || { echo "timing_bypass build failed"; exit 2; }
+build timing_bypass bpmac --defsym MAC=1 \
+                               || { echo "timing_bypass MAC build failed"; exit 2; }
+build timing_bypass bpalu --defsym FMUL=1 \
+                               || { echo "timing_bypass FMUL build failed"; exit 2; }
+build timing_bypass bpst  --defsym FMUL=1 --defsym STORE=1 \
+                               || { echo "timing_bypass STORE build failed"; exit 2; }
 build timing_tuple tpc         || { echo "timing_tuple build failed"; exit 2; }
 build timing_tuple tpu --defsym UNCACHED=1 \
                                || { echo "timing_tuple.u build failed"; exit 2; }
@@ -161,10 +177,13 @@ ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
 ldf="$(cycles ldf "$MIN_TAKEN")"
 hwl0="$(cycles hwl 0)";  hwl="$(cycles hwl "$MIN_TAKEN")"
+bpmul="$(cycles bpmul "$MIN_TAKEN")"; bpmac="$(cycles bpmac "$MIN_TAKEN")"
+bpalu="$(cycles bpalu "$MIN_TAKEN")"; bpst="$(cycles bpst  "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
 for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
-         "$ldf" "$hwl0" "$hwl" "$tpc" "$tpu"; do
+         "$ldf" "$hwl0" "$hwl" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
+         "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
 
@@ -205,7 +224,21 @@ report "hw-loop body is one bundle per cycle" \
        "$(( (hwl0 + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
 report "hw-loop back edge is free" "$hwl" "$hwl0"
 
-# 8. a wide load's lanes: a scalar read of any one register of the pair `lq'
+# 8. a late-read operand shortens the dependence into it, each pair measured
+#    against its own control.
+per_step() { echo $(( ($1 + STEPS / 2) / STEPS )); }
+mul_lat="$(per_step "$bpmul")"
+alu_lat="$(per_step "$bpalu")"
+report "mulw chain costs E2-RR (control)" \
+       "$mul_lat" "$(( STAGE_E2 - STAGE_RR ))"
+report "maddw accumulator is read a stage later" \
+       "$(per_step "$bpmac")" "$(( mul_lat - 1 ))"
+report "fmulw to an RR consumer costs E4-RR (control)" \
+       "$alu_lat" "$(( STAGE_E4 - STAGE_RR ))"
+report "fmulw to a store is a cycle closer" \
+       "$(per_step "$bpst")" "$(( alu_lat - 1 ))"
+
+# 9. a wide load's lanes: a scalar read of any one register of the pair `lq'
 #    wrote, or of the quad `lo' wrote, waits the whole latency.
 per_tuple() { echo $(( ($1 + TUPLES / 2) / TUPLES )); }
 report "lq/lo lane use costs 1+(CR-RR)" \
@@ -222,5 +255,7 @@ printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
 printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \
     "$tpc" "$tpu" "$ldf"
 printf 'hw loop %s/%s   (bubble 0 / %s)\n' "$hwl0" "$hwl" "$MIN_TAKEN"
+printf 'late reads: mulw %s maddw %s   fmulw+alu %s fmulw+store %s\n' \
+    "$bpmul" "$bpmac" "$bpalu" "$bpst"
 [ $rc -eq 0 ] && echo "check_timing: PASS" || echo "check_timing: FAIL"
 exit $rc

@@ -48,10 +48,12 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "arch/generic/pcstate.hh"
 #include "base/logging.hh"
 #include "base/refcnt.hh"
+#include "base/types.hh"
 #include "cpu/op_class.hh"
 #include "cpu/reg_class.hh"
 #include "cpu/static_inst_fwd.hh"
@@ -128,6 +130,27 @@ class StaticInst : public RefCounted, public StaticInstFlags
     numDestRegs(RegClassType type) const
     {
         return _numTypedDestRegs[type];
+    }
+
+    /// Per-source relative latency: how many cycles before its producer's
+    /// result is ready each source register may be read, because this
+    /// instruction reads that operand later than the earliest read stage.
+    /// Indexed like srcRegIdx(); as long as numSrcRegs() or null.
+    ///
+    /// Most operands are read as early as possible and so relax by nothing,
+    /// which is why null (no relaxation at all) is the default and all but
+    /// one ISA leaves it. The exceptions are real and worth a cycle each: an
+    /// LVX store reads its *stored value* a stage after its address, and the
+    /// integer MAC its accumulator a stage after its multiplicands, so the
+    /// dependence into those is one cycle shorter than the producer's latency
+    /// -- what a GCC port writes as a define_bypass. MinorCPU can already
+    /// apply such a relaxation but could only be told about it per functional
+    /// unit, by mask/match over raw instruction bits; this lets the ISA state
+    /// it per instruction, which is where the fact lives.
+    virtual const std::vector<Cycles> *
+    srcRegsRelativeLats() const
+    {
+        return nullptr;
     }
     //@}
 

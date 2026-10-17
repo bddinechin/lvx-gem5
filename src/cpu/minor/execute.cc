@@ -726,9 +726,16 @@ Execute::issue(ThreadID thread_id)
                     MinorFUTiming *timing = (!inst->isFault() ?
                         fu->findTiming(inst->staticInst) : NULL);
 
+                    /* An ISA that states its per-operand read stages
+                     * itself takes precedence over MinorFUTiming, which can
+                     * only speak per functional unit. */
+                    const std::vector<Cycles> *inst_src_latencies =
+                        inst->isFault() ? nullptr
+                            : inst->staticInst->srcRegsRelativeLats();
                     const std::vector<Cycles> *src_latencies =
-                        (timing ? &(timing->srcRegsRelativeLats)
-                            : NULL);
+                        inst_src_latencies ? inst_src_latencies
+                            : (timing ? &(timing->srcRegsRelativeLats)
+                                : NULL);
 
                     const std::vector<bool> *cant_forward_from_fu_indices =
                         &(fu->cantForwardFromFUIndices);

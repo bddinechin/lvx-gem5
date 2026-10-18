@@ -121,7 +121,7 @@
 > win. See *Implementing a load shadow* below; note it is **not** what the
 > micro-op split fixes, the blocking being independent of granularity.
 >
-> **Also wrong: the hardware-loop back
+> **Fixed 2026-10-18 as well: the hardware-loop back
 > edge.** Being the fetch engine's, it is exempt from `takenBranchBubble` —
 > though not for the reason first given here. "The bundle holds no branch" was
 > the test, and it is the wrong one: the bundle LE falls off can perfectly well
@@ -131,8 +131,17 @@
 > set by `LvxStaticInst::execute` only when the loop engine took the edge), and
 > `tests/lvx/diff/check_timing.sh` pins it with a loop whose last bundle is
 > exactly that untaken `cb`. What remains wrong is that the back edge is
-> invisible to Minor's branch predictor, which means every one is an
-> *unpredicted* redirect and pays the full front-end refill. A one-bundle `LOOPDO` body
+> reaching the *fetch* side only through Minor's branch predictor, which
+> Fetch2 consults only for a bundle that is `isControl()`: with a `cb` there
+> the BTB learned the edge and fetch followed it for free, and without one
+> every trip was an unpredicted redirect paying a full refill -- 10.17 cycles
+> a trip against 4.14 for the same seven bundles. `BaseISA::fetchRedirect`
+> now lets the ISA redirect the fetch stream itself, and Fetch2 follows it as
+> it follows a correct prediction, which is also why Execute does not then
+> squash: the instruction is marked predicted-taken to the target it is about
+> to take. Both shapes now cost their bundle count; a one- or two-bundle body
+> still floors at ~4.1 on Fetch2's redirect turnaround, which a predicted
+> branch also pays. A one-bundle `LOOPDO` body
 > measures **6.1 cycles a trip** where the architecture says 1, so the ISS makes
 > a hardware loop look dearer than the rotated branch loop it exists to replace
 > (4.1 cycles a trip for a three-bundle body). Fixing it needs a way to tell

@@ -194,6 +194,14 @@ class Fetch2 : public Named
      *  carries the prediction to Fetch1 */
     void predictBranch(MinorDynInstPtr inst, BranchData &branch);
 
+    /** Follow a redirect of the fetch stream that the ISA's own fetch engine
+     *  performs -- a hardware loop's back edge -- with no instruction having
+     *  branched.  Marks the instruction as predicted-taken to the new PC, so
+     *  Execute later finds a correctly predicted branch and does not squash:
+     *  the redirect is free on the machine and must be free here. */
+    void fetchEngineRedirect(MinorDynInstPtr inst, PCStateBase &next_pc,
+                             BranchData &branch);
+
     /** Use the current threading policy to determine the next thread to
      *  fetch from. */
     ThreadID getScheduledThread();

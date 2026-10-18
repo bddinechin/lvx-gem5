@@ -106,6 +106,12 @@ ever anchored at the branch's *commit* rather than its issue, since in-order
 commit holds the branch behind the load and a commit-anchored bubble lands
 after the latency it should have vanished into.
 
+Two are about the hardware loop, and the second is the sharp one: the loop must
+cost the same whether or not the bundle `LE` falls off happens to hold a
+branch. It did not until 2026-10-18, the back edge having reached the fetch
+side only through the branch predictor, which Fetch2 consults only for a
+bundle that is `isControl()`.
+
 Four assertions are about operands read *later* than RR -- a store's stored
 value and the integer MAC's accumulator, at E1 -- which shorten the dependence
 into them by a cycle, lvx-gcc's `define_bypass` seen from the other side. Each

@@ -18,6 +18,18 @@
 	# dependence between them, so a trip costs seven cycles and any penalty
 	# charged shows up whole rather than being absorbed by a stall.  Run at a
 	# penalty of 0 and of minTaken, the cycle counts must be equal.
+	#
+	# --defsym NOBCU=1 replaces that trailing `cb' with a seventh `addd', so
+	# the bundle LE falls off holds no branch at all.  The two must cost the
+	# same, and that is the sharper assertion: until 2026-10-18 they did not,
+	# because the back edge reached the *fetch* side only through the branch
+	# predictor, which Fetch2 consults only for a bundle that is isControl().
+	# With a `cb' there the BTB learned the edge and fetch followed it for
+	# free; without one, every trip was an unpredicted redirect paying a full
+	# front-end refill -- 10.17 cycles a trip against 4.14 for the same seven
+	# bundles.  Whether a hardware loop was free depended on whether its last
+	# bundle happened to contain a branch, which is not a property any
+	# machine has.
 	.equ TRIPS, 1000
 	.section .text
 	.global _start
@@ -41,7 +53,11 @@ _start:
 	;;
 	addd $r25 = $r25, 1
 	;;
+.ifdef NOBCU
+	addd $r26 = $r26, 1	# no branch at all; LE falls off this bundle
+.else
 	cb.deqz $r9 ? .Lout	# BCU, never taken; LE falls off this bundle
+.endif
 	;;
 .Lend:
 	maked $r0 = 0

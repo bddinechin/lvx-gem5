@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Twenty-one assertions, each failing alone if its piece regresses:
+# Twenty-two assertions, each failing alone if its piece regresses:
 #
 #   1. a taken *conditional* branch costs minTaken + 1, and a taken
 #      *unconditional* one minTaken -- the difference being when each settles
@@ -56,9 +56,13 @@
 #      in-order commit is not ready for -- so without nonBlockingFuncUnits
 #      one short instruction behind a long one serialises its whole lane and
 #      the eight fillers cost the full eight.
-#   7. a hardware loop's back edge costs nothing, even when the bundle LE
-#      falls off holds a BCU instruction.  The loop engine takes that edge,
-#      not a branch, so no penalty and no elapsing of anything in flight.
+#   7. a hardware loop's back edge costs nothing -- no architectural penalty
+#      (the loop engine takes that edge, not a branch) and no front-end
+#      refill either, the fetch side being told about it through
+#      BaseISA::fetchRedirect.  Asserted both ways round: the loop costs its
+#      bundle count, and it costs the *same* whether or not the bundle LE
+#      falls off happens to hold a branch, which is what the refill used to
+#      depend on.
 #   8. an operand read later than RR shortens the dependence into it: a
 #      store's stored value and the integer MAC's accumulator are read at E1,
 #      so a producer feeding one is a cycle closer than its latency says.
@@ -168,6 +172,8 @@ build timing_ld  ldb --defsym UNCACHED=1 --defsym BRANCH=1 \
 build timing_ld  ldf --defsym UNCACHED=1 --defsym FILLERS=1 \
                                || { echo "timing_ld.u+fillers build failed"; exit 2; }
 build timing_hwloop hwl        || { echo "timing_hwloop build failed"; exit 2; }
+build timing_hwloop hwn --defsym NOBCU=1 \
+                               || { echo "timing_hwloop NOBCU build failed"; exit 2; }
 build timing_bypass bpmul      || { echo "timing_bypass build failed"; exit 2; }
 build timing_bypass bpmac --defsym MAC=1 \
                                || { echo "timing_bypass MAC build failed"; exit 2; }
@@ -187,13 +193,14 @@ ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
 ldf="$(cycles ldf "$MIN_TAKEN")"
 hwl0="$(cycles hwl 0)";  hwl="$(cycles hwl "$MIN_TAKEN")"
+hwn="$(cycles hwn "$MIN_TAKEN")"
 bpmul="$(cycles bpmul "$MIN_TAKEN")"; bpmac="$(cycles bpmac "$MIN_TAKEN")"
 bpalu="$(cycles bpalu "$MIN_TAKEN")"; bpst="$(cycles bpst  "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
 for v in "$alu0" "$alu" "$unc0" "$unc" "$ant0" "$ant" \
          "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
-         "$ldf" "$hwl0" "$hwl" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
+         "$ldf" "$hwl0" "$hwl" "$hwn" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
          "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
@@ -252,6 +259,8 @@ report_under "8 bundles fit in ld.u's shadow" \
 report "hw-loop body is one bundle per cycle" \
        "$(( (hwl0 + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
 report "hw-loop back edge is free" "$hwl" "$hwl0"
+report "hw-loop costs the same with no branch in it" \
+       "$(( (hwn + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
 
 # 8. a late-read operand shortens the dependence into it, each pair measured
 #    against its own control.
@@ -285,7 +294,8 @@ printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
 printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \
     "$tpc" "$tpu" "$ldf"
-printf 'hw loop %s/%s   (bubble 0 / %s)\n' "$hwl0" "$hwl" "$MIN_TAKEN"
+printf 'hw loop %s/%s  no-branch body %s   (bubble 0 / %s)\n' \
+    "$hwl0" "$hwl" "$hwn" "$MIN_TAKEN"
 printf 'late reads: mulw %s maddw %s   fmulw+alu %s fmulw+store %s\n' \
     "$bpmul" "$bpmac" "$bpalu" "$bpst"
 [ $rc -eq 0 ] && echo "check_timing: PASS" || echo "check_timing: FAIL"

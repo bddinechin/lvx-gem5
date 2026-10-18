@@ -7,6 +7,8 @@
 
 #include "arch/lvx/isa.hh"
 
+#include "arch/lvx/pcstate.hh"
+#include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/regs/vec.hh"
 #include "cpu/thread_context.hh"
 #include "params/LvxISA.hh"
@@ -48,6 +50,19 @@ void
 ISA::clear()
 {
     std::fill(miscRegFile.begin(), miscRegFile.end(), 0);
+}
+
+bool
+ISA::fetchRedirect(PCStateBase &next_pc) const
+{
+    if (!misc_reg::ps::hwLoopEnabled())
+        return false;
+    if (next_pc.instAddr() != readMiscRegNoEffect(misc_reg::LE))
+        return false;
+    if (readMiscRegNoEffect(misc_reg::LC) <= 1)
+        return false;
+    next_pc.as<PCState>().set(readMiscRegNoEffect(misc_reg::LS));
+    return true;
 }
 
 RegVal

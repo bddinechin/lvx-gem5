@@ -237,6 +237,36 @@ Fetch2::predictBranch(MinorDynInstPtr inst, BranchData &branch)
 }
 
 void
+Fetch2::fetchEngineRedirect(MinorDynInstPtr inst, PCStateBase &next_pc,
+    BranchData &branch)
+{
+    Fetch2ThreadInfo &thread = fetchInfo[inst->id.threadId];
+
+    auto *isa = cpu.getContext(inst->id.threadId)->getIsaPtr();
+    if (!isa->fetchRedirect(next_pc))
+        return;
+
+    /* Exactly what a taken prediction does, and deliberately so: fetch
+     *  follows it now, and because the instruction is marked predicted-taken
+     *  to this target, Execute's tryToBranch later classifies the
+     *  architectural redirect as a correctly predicted branch and lets the
+     *  pipeline carry on.  Discovering it only at execute would squash the
+     *  front end and cost a full refill, which for a hardware loop is a cost
+     *  the machine does not have. */
+    inst->predictedTaken = true;
+    set(inst->predictedTarget, next_pc);
+
+    thread.expectedStreamSeqNum = inst->id.streamSeqNum;
+    branch = BranchData(BranchData::BranchPrediction, inst->id.threadId,
+        inst->id.streamSeqNum, thread.predictionSeqNum + 1, next_pc, inst);
+    thread.predictionSeqNum++;
+
+    DPRINTF(Branch, "Fetch engine redirect (no branch) inst: %s target: %s"
+        " new predictionSeqNum: %d\n", *inst, next_pc,
+        thread.predictionSeqNum);
+}
+
+void
 Fetch2::evaluate()
 {
     /* Push input onto appropriate input buffer */
@@ -460,6 +490,13 @@ Fetch2::evaluate()
                     /* Predict any branches and issue a branch if
                      *  necessary */
                     predictBranch(dyn_inst, prediction);
+
+                    /* Failing that, the ISA's fetch engine may redirect the
+                     *  stream itself with no instruction having branched. */
+                    if (!dyn_inst->predictedTaken) {
+                        fetchEngineRedirect(dyn_inst, *fetch_info.pc,
+                                            prediction);
+                    }
                 } else {
                     DPRINTF(Fetch, "Inst not ready yet\n");
                 }

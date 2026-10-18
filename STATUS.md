@@ -102,6 +102,22 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**The hardware-loop back edge is free**, on both sides, as of 2026-10-18. It
+was already exempt from the taken-branch penalty (`freeRedirect`), but it
+reached the *fetch* side only through Minor's branch predictor, which Fetch2
+consults only for a bundle that is `isControl()` — so a loop whose last bundle
+held a branch was free, and one whose last bundle held arithmetic paid a full
+front-end refill every trip. `BaseISA::fetchRedirect` (new, false by default)
+lets the ISA redirect the fetch stream itself, and Fetch2 follows it exactly as
+it follows a correct prediction, so Execute later sees a correctly predicted
+branch and does not squash. A seven-bundle body went from 10.17 cycles a trip
+to 7.18, and costs the same now whether or not its last bundle holds a branch.
+
+Residual: a one- or two-bundle body still floors at ~4.1 cycles a trip rather
+than 1 or 2, which is Fetch2's redirect turnaround — the same floor a correctly
+predicted branch has, so no longer something peculiar to hardware loops. Taking
+it to 1 would need a loop buffer.
+
 **The branch cost model** is complete as of 2026-10-18: a not-taken branch
 costs nothing, a taken unconditional one `minTaken`, and a taken conditional
 one `minTaken + 1` — the extra being `Opcode@timing`'s `%0: Transfer.<c>`,
@@ -134,14 +150,6 @@ result latency elapses against rather than adding to.
 
 Still open, in order of size:
 
-- **The hardware-loop back edge costs ~6 cycles instead of 1.** (It is at
-  least free of the *taken-branch penalty* since 2026-10-17 — see
-  `freeRedirect` — but it is still invisible to Minor's branch predictor, so
-  every back edge is an unpredicted redirect paying the front-end refill.) It is invisible
-  to Minor's branch predictor (the bundle holds no branch), so every back edge
-  is an unpredicted redirect paying the full front-end refill — which makes a
-  `LOOPDO` loop look dearer than the rotated branch loop it replaces. This is
-  the inverse of the architecture and the largest remaining error.
 - **A mispredicted branch pays Minor's refill on top of the architectural
   penalty.** The predictor is kept on deliberately, and *not* as a speculation
   mechanism: it stands in for an LVX fetch engine that keeps up with a taken

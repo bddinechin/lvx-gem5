@@ -84,6 +84,29 @@ class BaseISA : public SimObject
     virtual void takeOverFrom(ThreadContext *new_tc, ThreadContext *old_tc) {}
     virtual void setThreadContext(ThreadContext *_tc) { tc = _tc; }
 
+    /**
+     * Redirect the instruction *fetch* stream, where the ISA's fetch engine
+     * does so itself with no instruction having branched -- a hardware
+     * loop's back edge, whose bounds the fetch engine holds. `next_pc' is
+     * the sequentially-advanced PC; update it and return true to send fetch
+     * elsewhere, leave it and return false (the default, and every ISA
+     * without such a mechanism) to continue sequentially.
+     *
+     * A timing model should treat this exactly as it treats a correct branch
+     * prediction: fetch follows it with no squash, and the instruction that
+     * later performs the redirect architecturally finds the stream already
+     * where it belongs. The point is that such a redirect costs nothing, and
+     * a model that discovers it only when the instruction executes charges a
+     * pipeline refill the machine does not.
+     *
+     * Called with the ISA's own thread context available, so an
+     * implementation may read the architectural state the fetch engine holds
+     * -- which is committed state, so it lags fetch. That is the right
+     * conservatism: fetch may run past the end of a loop and be squashed
+     * once on exit, rather than stalling every trip.
+     */
+    virtual bool fetchRedirect(PCStateBase &next_pc) const { return false; }
+
     virtual uint64_t getExecutingAsid() const { return 0; }
     virtual bool inUserMode() const = 0;
     virtual void copyRegsFrom(ThreadContext *src) = 0;

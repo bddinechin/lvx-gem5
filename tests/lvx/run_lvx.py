@@ -53,7 +53,9 @@ system.membus = SystemXBar()
 # drive) rather than being dominated by uncached instruction-fetch DRAM latency.
 # The atomic CPU needs none (atomic memory has no timing).
 class _L1(Cache):
-    assoc = 2
+    # 8-way, so 32kB of 64-byte lines is 64 sets. Replacement is gem5's
+    # default LRU; there is no L2 and no prefetcher.
+    assoc = 8
     tag_latency = 1
     data_latency = 1
     response_latency = 1

@@ -81,6 +81,11 @@ struct LvxRegDeps
     signed char          varSlot;
     const unsigned char *varLat;
     unsigned char        nVarLat;
+    // The cycle a control opcode writes NPC at (Opcode@timing's
+    // `%0: Transfer.<c>'), which is the cycles its taken branch costs beyond
+    // Processor@minTaken: 0 for goto/call/ret, 1 for cb/ccb/igoto/icall.
+    // 0 for everything that does not transfer.
+    unsigned char        xfer;
 };
 
 // Defined in generated/behavior.c (compiled as C). Indexed by the Opcode enum.

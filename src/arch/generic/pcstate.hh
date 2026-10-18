@@ -147,6 +147,16 @@ class PCStateBase : public Serializable
      */
     virtual bool freeRedirect() const { return false; }
 
+    /**
+     * Cycles this redirect costs *beyond* a timing model's base taken-branch
+     * penalty, because the instruction settled the next PC later in the
+     * pipeline than the earliest a branch can.  An unconditional direct
+     * branch knows its target as soon as it is decoded and adds nothing; one
+     * that waits for a comparison or for a register resolves a stage later
+     * and adds a cycle.  0 for every ISA that does not distinguish them.
+     */
+    virtual unsigned redirectExtraCycles() const { return 0; }
+
     void
     serialize(CheckpointOut &cp) const override
     {

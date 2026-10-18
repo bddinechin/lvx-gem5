@@ -18,14 +18,18 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Seventeen assertions, each exact, each failing alone if its piece regresses:
+# Twenty-one assertions, each failing alone if its piece regresses:
 #
-#   1. a loop with no dependence stalls costs minTaken per taken branch --
-#      measured as the difference between running the same binary with the
-#      bubble at 0 and at minTaken, so the prologue and the instruction-cache
-#      behaviour cancel exactly.
-#   2. the same loop with the bubble at 0 costs one cycle per bundle, which is
-#      what makes (1) the whole of the branch's cost rather than part of it.
+#   1. a taken *conditional* branch costs minTaken + 1, and a taken
+#      *unconditional* one minTaken -- the difference being when each settles
+#      the next PC (Opcode@timing's `%0: Transfer.<c>': `cb' waits for its
+#      comparison and transfers in RR, `goto' knows its target in ID).  Each
+#      is the difference between running the same binary with the bubble at 0
+#      and at minTaken, so the prologue and the cache behaviour cancel.
+#   1a. a *not-taken* branch costs nothing but its own bundle.
+#   2. the loops these are measured in cost one cycle per bundle with the
+#      bubble at 0, which is what makes (1) the whole of a branch's cost
+#      rather than part of it.
 #   3. a load whose first use is the very next bundle stalls for its whole
 #      latency: 1 + (CR - RR) cycles a copy cached, 1 + (SR - RR) uncached.
 #      Both figures, not just their difference, so neither a load that is
@@ -152,6 +156,10 @@ report_under() { # report_under <name> <hundredths> <limit in hundredths>
 }
 
 build timing_alu alu           || { echo "timing_alu build failed";  exit 2; }
+build timing_alu unc --defsym UNCOND=1 \
+                               || { echo "timing_alu UNCOND build failed"; exit 2; }
+build timing_alu ant --defsym NOTTAKEN=1 \
+                               || { echo "timing_alu NOTTAKEN build failed"; exit 2; }
 build timing_ld  ldc           || { echo "timing_ld build failed";   exit 2; }
 build timing_ld  ldu --defsym UNCACHED=1 \
                                || { echo "timing_ld.u build failed"; exit 2; }
@@ -172,6 +180,8 @@ build timing_tuple tpu --defsym UNCACHED=1 \
                                || { echo "timing_tuple.u build failed"; exit 2; }
 
 alu0="$(cycles alu 0)";  alu="$(cycles alu "$MIN_TAKEN")"
+unc0="$(cycles unc 0)";  unc="$(cycles unc "$MIN_TAKEN")"
+ant0="$(cycles ant 0)";  ant="$(cycles ant "$MIN_TAKEN")"
 ldc0="$(cycles ldc 0)";  ldc="$(cycles ldc "$MIN_TAKEN")"
 ldu0="$(cycles ldu 0)";  ldu="$(cycles ldu "$MIN_TAKEN")"
 ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
@@ -181,20 +191,30 @@ bpmul="$(cycles bpmul "$MIN_TAKEN")"; bpmac="$(cycles bpmac "$MIN_TAKEN")"
 bpalu="$(cycles bpalu "$MIN_TAKEN")"; bpst="$(cycles bpst  "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
-for v in "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
+for v in "$alu0" "$alu" "$unc0" "$unc" "$ant0" "$ant" \
+         "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
          "$ldf" "$hwl0" "$hwl" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
          "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
 
-# 1. the taken branch costs minTaken, once per trip.
-report "taken branch costs minTaken per branch" \
-       "$(per_trip $(( alu - alu0 )))" "$MIN_TAKEN"
+# 1. what each kind of taken branch costs, once per trip.
+report "taken conditional branch costs minTaken+1" \
+       "$(per_trip $(( alu - alu0 )))" "$(( MIN_TAKEN + 1 ))"
+report "taken unconditional branch costs minTaken" \
+       "$(per_trip $(( unc - unc0 )))" "$MIN_TAKEN"
+
+# 1a. and a branch that is not taken costs only the bundle it sits in: the
+#     NOTTAKEN loop is the plain one plus one never-taken cb.
+report "a not-taken branch costs only its bundle" \
+       "$(( $(per_trip "$ant") - $(per_trip "$alu") ))" 1
 
 # 2. and the loop it was measured in really does issue a bundle a cycle, so
 #    that difference is the whole penalty and not part of it.
 report "stall-free loop is one bundle per cycle" \
        "$(per_trip "$alu0")" "$ALU_BUNDLES"
+report "the unconditional loop likewise, one bundle more" \
+       "$(per_trip "$unc0")" "$(( ALU_BUNDLES + 1 ))"
 
 # 3. the load stalls for its whole latency when its first use is the next
 #    bundle -- the cached and the uncached figure, and so their difference.
@@ -209,8 +229,17 @@ report "ld.u costs SR-CR more per copy than ld" \
 #    stall elapses against the load's latency.  Same binary, two penalties.
 report "taken branch before first use is free" "$ldb" "$ldb0"
 
-# 5. and so is the latch branch of a loop whose recurrence is a load.
-report "branch stall dangles against ld"   "$ldc" "$ldc0"
+# 5. and so is the latch branch of a loop whose recurrence is a load.  The
+#    uncached loop absorbs it whole -- 16 cycles of recurrence against a
+#    3-cycle penalty.  The cached one has only ~4.25 cycles of recurrence to
+#    hide 3 in, so it absorbs nearly but not quite all of it, and the
+#    assertion there is a bound: well under a cycle a trip, where no
+#    absorption at all would be three.  (It absorbed exactly all of it until
+#    2026-10-18, when a taken conditional branch went from costing minTaken
+#    to minTaken + 1.)
+hundredths_per_trip() { echo $(( ($1 * 100 + TRIPS / 2) / TRIPS )); }
+report_under "branch stall mostly dangles against ld" \
+       "$(hundredths_per_trip $(( ldc - ldc0 )))" 100
 report "branch stall dangles against ld.u" "$ldu" "$ldu0"
 
 # 6. the shadow: eight independent bundles between the load and its use cost
@@ -250,6 +279,8 @@ echo "----"
 printf 'minTaken=%s  RR=%s CR=%s SR=%s  (uncached load latency %s, cached %s)\n' \
     "$MIN_TAKEN" "$STAGE_RR" "$STAGE_CR" "$STAGE_SR" \
     $(( STAGE_SR - STAGE_RR )) $(( STAGE_CR - STAGE_RR ))
+printf 'alu %s/%s  uncond %s/%s  nottaken %s/%s\n' \
+    "$alu0" "$alu" "$unc0" "$unc" "$ant0" "$ant"
 printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
 printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \

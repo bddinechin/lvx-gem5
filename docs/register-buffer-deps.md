@@ -233,9 +233,16 @@
 >   `sum(opLat)` = 36, which the backlog behind one 15-cycle load fits, but a
 >   generic version should size it deliberately and have `issue` check it.
 >
+> The penalty is per branch as of 2026-10-18: `minTaken` for one that settles
+> the next PC in ID (`goto`, `call`, `ret`) and a cycle more for one that waits
+> on a comparison or a register and settles it in RR (`cb`, `ccb`, `igoto`,
+> `icall`), the difference coming from `Opcode@timing`'s `%0: Transfer.<c>`
+> through the PC state, like `freeRedirect` and for the same reason — which of
+> a bundle's two BCU slots actually transferred is a run-time fact.
+>
 > One hole survives either fix: a branch sitting *behind* a long-latency
-> operation commits late, so the bubble's release cycle has passed and
-> `minTaken` goes uncharged. The fix is to charge it at **issue**, keyed on
+> operation commits late, so the bubble's release cycle has passed and the
+> penalty goes uncharged. The fix is to charge it at **issue**, keyed on
 > `inst->predictedTaken` — which is known then, is correct whenever the
 > predictor is, and is the same stand-in for LVX's fetch engine that the
 > predictor already is — leaving the commit-time path as the correction for the

@@ -239,6 +239,12 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
      * next transition and so clears it. */
     const bool free_redirect = target->freeRedirect();
 
+    /* Cycles this particular redirect costs beyond takenBranchBubble, the ISA
+     * saying how late in the pipeline the instruction settled the next PC.
+     * Read here for the same reason as free_redirect: advancePC below
+     * describes the next transition and clears it. */
+    const unsigned redirect_extra = target->redirectExtraCycles();
+
     /* Force a branch for SerializeAfter/SquashAfter instructions
      * at the end of micro-op sequence when we're not suspended */
     bool force_branch = thread->status() != ThreadContext::Suspended &&
@@ -336,16 +342,23 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
      *
      * commit() runs before issue() in the same cycle (see Execute::evaluate),
      * so a branch that issues in cycle T and commits in T+1 still holds the
-     * target out of T+1 and T+2, releasing it in T+3 for a penalty of 2. */
+     * target out of T+1 and T+2, releasing it in T+3 for a penalty of 2.
+     *
+     * redirectExtraCycles() is added on top: the base penalty is what a
+     * branch costs when it decides as early as the pipeline allows, and one
+     * that waits for a comparison or a register decides later and costs
+     * correspondingly more. */
     if (takenBranchBubble != Cycles(0) && must_branch && fault == NoFault &&
         !force_branch && !free_redirect && inst->staticInst->isControl())
     {
         ExecuteThreadInfo &thread_info = executeInfo[inst->id.threadId];
-        Cycles until = inst->issueCycle + Cycles(1) + takenBranchBubble;
+        Cycles until = inst->issueCycle + Cycles(1) + takenBranchBubble +
+                       Cycles(redirect_extra);
         if (until > thread_info.issueBubbleUntil)
             thread_info.issueBubbleUntil = until;
-        DPRINTF(Branch, "Taken branch issued in cycle %d: holding issue"
-            " until cycle %d\n", inst->issueCycle,
+        DPRINTF(Branch, "Taken branch issued in cycle %d (penalty %d+%d):"
+            " holding issue until cycle %d\n", inst->issueCycle,
+            takenBranchBubble, redirect_extra,
             thread_info.issueBubbleUntil);
     }
 

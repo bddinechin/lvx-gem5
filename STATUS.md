@@ -102,6 +102,13 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**The branch cost model** is complete as of 2026-10-18: a not-taken branch
+costs nothing, a taken unconditional one `minTaken`, and a taken conditional
+one `minTaken + 1` — the extra being `Opcode@timing`'s `%0: Transfer.<c>`,
+now exported per opcode, which says `cb`/`ccb`/`igoto`/`icall` settle the next
+PC a stage later than `goto`/`call`/`ret`. All three are measured exactly by
+`tests/lvx/diff/check_timing.sh`.
+
 **Per-operand read stages** landed 2026-10-17 too: a store's stored value, an
 atomic's, and the integer MAC's accumulator are read at E1 rather than RR, so
 the dependence into them is a cycle shorter — what lvx-gcc writes as a
@@ -135,13 +142,25 @@ Still open, in order of size:
   is an unpredicted redirect paying the full front-end refill — which makes a
   `LOOPDO` loop look dearer than the rotated branch loop it replaces. This is
   the inverse of the architecture and the largest remaining error.
-- **A conditional branch should cost one cycle more than an unconditional one**
-  (`Opcode@timing`'s `%0: Transfer.c` — `cb`/`igoto`/`icall` resolve in RR, not
-  ID). The ISS charges `minTaken` for both, so a `cb` is one cycle cheap.
-- **A mispredicted branch pays Minor's refill on top of `minTaken`.** The
-  predictor is kept on deliberately, as a stand-in for an LVX fetch engine that
-  keeps up; the residue is the first execution of each branch and each loop
-  exit, so a warm loop is unaffected.
+- **A mispredicted branch pays Minor's refill on top of the architectural
+  penalty.** The predictor is kept on deliberately, and *not* as a speculation
+  mechanism: it stands in for an LVX fetch engine that keeps up with a taken
+  branch, and since the penalty is a hard release floor it can only ever make
+  a branch cost *more* than the architecture says, never less. Steady-state it
+  costs nothing measurable — the directed loops come out at exactly
+  `bundles + minTaken(+1)`, with 0.17 cycles a trip of cold start over 1000
+  trips. The residue is the first execution of each branch and each loop exit.
+
+  Turning prediction off is not the improvement it sounds like, and the number
+  says why: an *unpredicted* redirect costs **5.13 cycles** of front-end refill
+  (measured on a hardware loop, whose back edge is never predicted), against
+  the 2 or 3 the architecture charges. Minor's refill is structural —
+  `executeBranchDelay` plus the three forward delays, each hard-floored at 1
+  (`fatal: fetch1ToFetch2ForwardDelay must be >= 1`) — so it cannot be tuned
+  below the architectural penalty, and disabling prediction would replace a
+  cost LVX does not have with a bigger one it also does not have. Making the
+  penalty genuinely independent of prediction needs the front end restructured,
+  not a parameter.
 - **A result's latency is the whole bundle's**, so a bundle holding both an
   `ffmaw` and an `addd` marks both ready at the maximum of the two. This is
   the destination counterpart of the per-source read stages (done), and the

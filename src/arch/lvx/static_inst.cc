@@ -408,10 +408,17 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     // Next PC: fall-through unless a (BCU) instruction wrote NPC.
     Addr next = fallThrough;
     bool branched = false;
+    unsigned xfer = 0;
     for (unsigned i = 0; i < numSubInsts; i++)
         if (ctx[i].npcWritten) {
             next = ctx[i].nextPC;
             branched = true;
+            // The cycle *this* instruction settled the next PC at, which is
+            // what its taken branch costs beyond minTaken. A bundle may hold
+            // two BCU slots with different answers, so it has to be the one
+            // that actually transferred, not a property of the bundle.
+            xfer = subInsts[i].opcode < (unsigned)Opcode__NUM
+                 ? lvx_reg_deps[subInsts[i].opcode].xfer : 0;
         }
 
     // Hardware-loop back-edge (the fetch-engine mechanism, not any instruction's
@@ -442,6 +449,9 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
     // latency still in flight either, since no cycles pass. Set on every
     // bundle, not only the looping one, so the flag never reads stale.
     pc.freeRedirect(loopBack);
+    // goto/call/ret decide in ID and cost minTaken; cb/ccb/igoto/icall wait
+    // for a comparison or a register, decide in RR, and cost one more.
+    pc.redirectExtraCycles(branched ? xfer : 0);
     xc->pcState(*pcp);
 
     DPRINTF(LvxDecode, "execute bundle @ %#x: %u insn(s), next=%#x\n",

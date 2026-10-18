@@ -48,11 +48,20 @@ class PCState : public GenericISA::UPCState<4>
     // instruction" is not the question; this is.
     bool _freeRedirect = false;
 
+    // Cycles beyond minTaken that the transferring instruction's own
+    // resolution costs: Opcode@timing's `%0: Transfer.<c>', 0 for goto/call/
+    // ret (which decide in ID) and 1 for cb/ccb/igoto/icall (which wait for a
+    // comparison or a register, and so decide in RR).  Which of a bundle's
+    // BCU slots actually took the branch is a run-time fact, so it rides here
+    // with the redirect rather than being a property of the decoded bundle.
+    uint8_t _redirectExtra = 0;
+
   public:
     PCState() = default;
     PCState(const PCState &other) : Base(other),
         _bundleSize(other._bundleSize), _rv(other._rv),
-        _freeRedirect(other._freeRedirect) {}
+        _freeRedirect(other._freeRedirect),
+        _redirectExtra(other._redirectExtra) {}
     PCState &operator=(const PCState &other) = default;
     explicit PCState(Addr addr) { set(addr); }
 
@@ -65,6 +74,7 @@ class PCState : public GenericISA::UPCState<4>
         _bundleSize = other.as<PCState>()._bundleSize;
         _rv = other.as<PCState>()._rv;
         _freeRedirect = other.as<PCState>()._freeRedirect;
+        _redirectExtra = other.as<PCState>()._redirectExtra;
     }
 
     unsigned bundleSize() const { return _bundleSize; }
@@ -75,6 +85,9 @@ class PCState : public GenericISA::UPCState<4>
 
     bool freeRedirect() const override { return _freeRedirect; }
     void freeRedirect(bool v) { _freeRedirect = v; }
+
+    unsigned redirectExtraCycles() const override { return _redirectExtra; }
+    void redirectExtraCycles(unsigned v) { _redirectExtra = (uint8_t)v; }
 
     // Byte size of the current fetch unit (the bundle).
     Addr size() const { return _bundleSize; }
@@ -92,8 +105,9 @@ class PCState : public GenericISA::UPCState<4>
     {
         _pc = _npc;
         _npc = _pc + _bundleSize;
-        // Describes the transition just taken, not the next one.
+        // Describe the transition just taken, not the next one.
         _freeRedirect = false;
+        _redirectExtra = 0;
     }
 
     bool

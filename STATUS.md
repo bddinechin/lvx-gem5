@@ -215,20 +215,26 @@ Still open, in order of size:
 
 Three of this week's timing bugs were reachable only by code larger than the
 suite, and two of them were introduced with twenty-odd timing assertions
-passing over them. `tests/lvx/diff/check_kernel.sh` closes that: a
-dependence-carrying FP stencil with `fsqrtw`/`fdivw` inside the recurrence,
-compiled `-O2` so bundle lengths vary and hardware loops appear, asserting
-that it *completes* under `minor`, that it computes a host build's answer, and
-that `atomic` and `minor` agree on it. ~62k bundles, a few seconds a core.
+passing over them. `tests/lvx/diff/check_kernel.sh` closes that with two
+kernels, both `-O2` so bundle lengths vary and hardware loops appear: a
+`stencil` with `fsqrtw`/`fdivw` inside the recurrence, and `seidel` —
+PolyBench's seidel-2d shape in double, updated in place, a tight chain of
+short-latency work with `fdivd`. Each asserts that it *completes* under
+`minor`, computes a host build's answer, and that `atomic` and `minor` agree
+on it. ~62k and ~70k bundles, a few seconds a core.
+
+Worth recording: `seidel` is *not* the harder case by divergence from the
+functional model — 2.25x against the stencil's 3.92x — which is the argument
+for having both rather than against. A single ratio does not say which shapes
+a model gets wrong.
 
 That answer check is new coverage in its own right: `run_diff.sh` compares
 results against the host but runs the atomic CPU, so until now nothing checked
 that the pipeline model computes correctly at all.
 
-Still thin: one kernel, one shape. PolyBench's `seidel-2d` diverges 2.51x
-between `minor` and `atomic` and would stress the dependence machinery harder
-still; the other session's repro ELFs and build line are the starting point if
-this is worth widening.
+Still thin, and in a specific way: two shapes, both stencils, both FP, both
+tiny working sets so neither touches the memory system. Nothing here has a
+pointer chase, an indirect branch, or a working set past the L1.
 
 ### Simulation speed
 

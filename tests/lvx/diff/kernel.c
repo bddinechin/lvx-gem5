@@ -20,13 +20,27 @@
  *
  *   a dependence-carrying stencil   each element reads its west and north
  *                                   neighbours, so the recurrence is real and
- *                                   the schedule cannot hide it.  This is the
- *                                   shape where minor diverges furthest from
- *                                   atomic (2.5x on PolyBench's seidel-2d).
+ *                                   the schedule cannot hide it.
  *   sqrt and divide on the hot path the FD-stage opcodes, and the FP context
  *                                   the deadlock was found in.
  *   -O2 compiled C                  bundle lengths vary, immediates reach
  *                                   IMMX, and GCC emits hardware loops.
+ *
+ * Two kernels, selected by -DKERNEL_SEIDEL, because they stress different
+ * halves of the model and neither subsumes the other:
+ *
+ *   default         a 3-point stencil in float with fsqrtw and fdivw *inside*
+ *                   the recurrence.  A long latency in a loop-carried
+ *                   dependence: the FD bucket, the load shadow and the
+ *                   per-destination retire times all bear on it.
+ *   KERNEL_SEIDEL   Gauss-Seidel, PolyBench's seidel-2d shape, in double and
+ *                   updated in place, so A[i][j-1] was written by the
+ *                   immediately preceding inner iteration.  A *tight* chain
+ *                   of short-latency work -- nine adds and a divide, the
+ *                   adds serialised through the array -- which stresses
+ *                   issue, bundling and the dependence machinery rather than
+ *                   long latencies.  It also brings double-precision FP and
+ *                   fdivd into the suite, which the float kernel does not.
  *
  * It self-checks: the stencil is seeded deterministically and reduced to an
  * integer, so a model that completes with the wrong answer fails too, not
@@ -36,7 +50,11 @@
 #define N 24
 #define ITERS 12
 
+#ifdef KERNEL_SEIDEL
+static double a[N][N];
+#else
 static float a[N][N];
+#endif
 
 #ifdef KERNEL_HOST
 #include <math.h>
@@ -57,6 +75,36 @@ lvx_sqrtf(float x)
 }
 #endif
 
+#ifdef KERNEL_SEIDEL
+static unsigned long
+kernel_run(void)
+{
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			a[i][j] = (double)((i * 7 + j * 3) & 15) + 1.0;
+
+	/* Opaque so the division survives: 1/9 is not representable, so GCC
+	   keeps the divide anyway, but saying it leaves nothing to a flag. */
+	volatile double nine = 9.0;
+	double d = nine;
+
+	/* In place, so a[i][j-1] and a[i-1][*] were written by iterations of
+	   this same sweep.  The chain through j is the point: each element
+	   cannot start until its west neighbour has landed. */
+	for (int t = 0; t < ITERS; t++)
+		for (int i = 1; i < N - 1; i++)
+			for (int j = 1; j < N - 1; j++)
+				a[i][j] = (a[i - 1][j - 1] + a[i - 1][j] + a[i - 1][j + 1]
+				         + a[i][j - 1]     + a[i][j]     + a[i][j + 1]
+				         + a[i + 1][j - 1] + a[i + 1][j] + a[i + 1][j + 1]) / d;
+
+	unsigned long sum = 0;
+	for (int i = 0; i < N; i++)
+		for (int j = 0; j < N; j++)
+			sum += (unsigned long)(a[i][j] * 64.0);
+	return sum;
+}
+#else
 static unsigned long
 kernel_run(void)
 {
@@ -95,6 +143,7 @@ kernel_run(void)
 
 	return sum;
 }
+#endif
 
 #ifdef KERNEL_HOST
 /* The host build prints the answer; check_kernel.sh feeds it back as

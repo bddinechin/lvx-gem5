@@ -94,10 +94,17 @@ and it exists because three timing bugs reached the tree in one week with
 twenty-odd timing assertions passing over them. Everything else here is either
 a micro test or runs the atomic CPU, so nothing exercised MinorCPU on code of
 any size; one of the three was an outright deadlock, found by somebody else's
-PolyBench run after 1h19m rather than by this suite. `kernel.c` is a
-dependence-carrying FP stencil with `fsqrtw` and `fdivw` inside the recurrence,
-compiled `-O2` so its bundle lengths vary and GCC emits hardware loops --
-each part aimed at one of the three. It asserts that the kernel *completes*
+PolyBench run after 1h19m rather than by this suite. `kernel.c` holds two
+kernels, each compiled `-O2` so bundle lengths vary and GCC emits hardware
+loops: `stencil` puts a long latency (`fsqrtw`, `fdivw`) inside a
+loop-carried dependence, and `seidel` -- PolyBench's seidel-2d shape, in
+double and updated in place -- puts a tight chain of short-latency work there
+instead, so each element waits on its west neighbour. Neither subsumes the
+other, and `seidel` is notably *not* the harder case by divergence from the
+functional model (2.25x against `stencil`'s 3.92x, where PolyBench's own
+seidel-2d gives 2.51x); it is in because that is a different shape and
+because it is the only thing here that brings double-precision FP and `fdivd`
+under the pipeline model at all. It asserts that the kernel *completes*
 under `minor`, that it computes the host build's answer, and that `atomic` and
 `minor` agree on that answer; the expected value is derived from a host build
 rather than written down, which works because every operation in it is exactly

@@ -211,6 +211,25 @@ Still open, in order of size:
 - **`XVR` and the RISC-V `RV` register file are still untracked**, so an
   extension-unit or RV64G dependence stalls nothing.
 
+### What the ISS suite now covers under the pipeline model
+
+Three of this week's timing bugs were reachable only by code larger than the
+suite, and two of them were introduced with twenty-odd timing assertions
+passing over them. `tests/lvx/diff/check_kernel.sh` closes that: a
+dependence-carrying FP stencil with `fsqrtw`/`fdivw` inside the recurrence,
+compiled `-O2` so bundle lengths vary and hardware loops appear, asserting
+that it *completes* under `minor`, that it computes a host build's answer, and
+that `atomic` and `minor` agree on it. ~62k bundles, a few seconds a core.
+
+That answer check is new coverage in its own right: `run_diff.sh` compares
+results against the host but runs the atomic CPU, so until now nothing checked
+that the pipeline model computes correctly at all.
+
+Still thin: one kernel, one shape. PolyBench's `seidel-2d` diverges 2.51x
+between `minor` and `atomic` and would stress the dependence machinery harder
+still; the other session's repro ELFs and build line are the starting point if
+this is worth widening.
+
 ### Simulation speed
 
 `Decoder::decode` used to build a fresh `LvxStaticInst` on **every fetch** --

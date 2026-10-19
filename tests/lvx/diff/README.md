@@ -86,7 +86,25 @@ a `check_*.sh` in this directory: `check_highmult.sh` (the four `muld` variants)
 surface), `check_ccb.sh` (the fused compare-and-branch predicates), `check_xvr.sh`
 (the lvx-2 vector moves), **`check_ownership.sh`** (system-register ownership) and
 **`check_timing.sh`** (the taken-branch penalty and the load variants' latency)
-and **`check_decode_cache.sh`** (that a cached bundle is still PC-relative).
+**`check_decode_cache.sh`** (that a cached bundle is still PC-relative) and
+**`check_kernel.sh`** (a real kernel under the pipeline model).
+
+**`check_kernel.sh`** is the one that runs real code under the pipeline model,
+and it exists because three timing bugs reached the tree in one week with
+twenty-odd timing assertions passing over them. Everything else here is either
+a micro test or runs the atomic CPU, so nothing exercised MinorCPU on code of
+any size; one of the three was an outright deadlock, found by somebody else's
+PolyBench run after 1h19m rather than by this suite. `kernel.c` is a
+dependence-carrying FP stencil with `fsqrtw` and `fdivw` inside the recurrence,
+compiled `-O2` so its bundle lengths vary and GCC emits hardware loops --
+each part aimed at one of the three. It asserts that the kernel *completes*
+under `minor`, that it computes the host build's answer, and that `atomic` and
+`minor` agree on that answer; the expected value is derived from a host build
+rather than written down, which works because every operation in it is exactly
+rounded. The cycles-per-bundle ceiling is a deliberately loose smoke bound --
+the bundle-length bug cost 6x on code whose lengths vary a lot but only 30% on
+this kernel, so a ceiling tight enough to catch it here would false-alarm the
+moment the model improves. Exact timing belongs in `check_timing.sh`.
 
 **`check_timing.sh`** is the odd one in the other direction: it checks *cycles*
 rather than results, so it is the only script here that needs `LVX_CPU=minor`

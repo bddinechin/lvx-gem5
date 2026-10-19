@@ -148,6 +148,15 @@ ever anchored at the branch's *commit* rather than its issue, since in-order
 commit holds the branch behind the load and a commit-anchored bubble lands
 after the latency it should have vanished into.
 
+**`check_parallel.sh`** pins VLIW parallel semantics inside one bundle: a
+reader beside a writer sees the value being replaced, and two instructions can
+exchange registers with no temporary. The ISS gets this structurally and
+nothing tested it; it is here because it is what the micro-op split would
+break, gem5's micro-ops executing in sequence so that syllable k+1 would see
+k's writes. Each of the five cases is built so sequential execution gives a
+different, specific result, and the exit code says which failed -- verified by
+mutating each case and watching it report its own number.
+
 Two are about the hardware loop, and the second is the sharp one: the loop must
 cost the same whether or not the bundle `LE` falls off happens to hold a
 branch. It did not until 2026-10-18, the back edge having reached the fetch

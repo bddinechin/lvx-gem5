@@ -257,17 +257,58 @@
 > predictor already is — leaving the commit-time path as the correction for the
 > unpredicted case.
 >
-> **The micro-op split (scoped next step; orthogonal to the above).** Each sub-instruction becomes a
-> MinorCPU micro-op with its own opClass/opLat, source list, and per-source
-> `srcRegsRelativeLats`. It also fixes the per-*result* limitation (a load and an
-> ALU result in one bundle share the bundle's max latency today). The hard part
-> is preserving **VLIW parallel semantics**: real `-O2` bundles pack e.g.
-> `make $r0=1 ; sw ...=$r0`, where the store reads the *old* `$r0` — so micro-ops
-> need a **bundle-entry register snapshot** for reads and **intra-bundle
-> dependency suppression** in the scoreboard (a parallel swap `copy $r0=$r1 ;
-> copy $r1=$r0` is unrepresentable sequentially, and neither Minor nor O3 handles
-> VLIW read/write phasing natively). This is why the port is bundle-at-a-time.
+> **The micro-op split: what it needs, verified 2026-10-19.**
 >
+> It is the last structural gap and it is what routing loads through the LSQ
+> waits on, Minor's queue being one access per dynamic instruction
+> (`MinorDynInst::inLSQ` is a single bool, `findResponse(inst)` singular) while
+> an LVX bundle has two LSU slots. In practice no current code needs that --
+> 50,631 bundles of libc and the validation binaries hold **zero** with two
+> memory accesses, against an instructions-per-bundle spread of 1 to 6 -- but
+> the restriction would be an assumption rather than a guarantee.
+>
+> Three things turned out better than this section used to assume:
+>
+> - **Minor splits macroops already.** `Decode` does it: `isMacroop()` then
+>   `fetchMicroop(microPC)`, tracking its own `microopPC` and stopping at
+>   `isLastMicroop()`. So the port supplies micro-ops; it does not build a
+>   splitter. LVX's `PCState` is already `GenericISA::UPCState<4>`.
+> - **The per-syllable data already exists.** `lvx_reg_deps` is indexed by
+>   opcode and carries each one's sources, destinations, latency, per-source
+>   read stages, per-destination write stages, transfer cycle and memory class.
+>   Nothing more has to be generated.
+> - **The operand staging already exists.** `execute()` runs every
+>   sub-instruction's fetch phase into `ctx[i].operands[]` before any execute
+>   phase, which is exactly the bundle-entry snapshot parallel reads need.
+>
+> What is actually hard is the semantics, and it is all-or-nothing: the moment
+> a bundle is a macroop, Minor executes its syllables in sequence, so syllable
+> k+1 sees k's writes. A parallel swap -- `copyd $r1 = $r2 ; copyd $r2 = $r1`
+> -- then silently returns the wrong answer. **`tests/lvx/diff/parallel.s` and
+> `check_parallel.sh` pin that first**, five cases each built so sequential
+> execution gives a different, specific result; they passed on the unsplit
+> model before this was written, which is the point of having them now.
+>
+> The shape the split wants:
+>
+> - micro-op 0 stages the *whole bundle's* operands (the fetch pass above) and
+>   evaluates the BCU slots, because GUARD's suppression mask has to be known
+>   before any syllable it guards runs. Later micro-ops execute and commit from
+>   that stash.
+> - the stash cannot live on the `StaticInst`: those are shared across
+>   addresses by the decode cache and `execute()` is const. It belongs on the
+>   ISA object, which is per thread and reachable through the ExecContext.
+> - a squash is safe without unwinding the stash, because an LVX redirect
+>   always resumes at a bundle boundary, so micro-op 0 re-stages before
+>   anything reads it. (x86 can resume mid-macroop; LVX cannot.)
+> - the bundle-level work has to be placed deliberately: the next-PC decision,
+>   the hardware-loop back edge, `freeRedirect` and `redirectExtra` all belong
+>   to the last micro-op, not the first.
+>
+> What it then buys, beyond the LSQ: per-source read stages at syllable
+> granularity rather than the bundle-wide minimum taken today, and the end of
+> the aggregated register lists.
+
 > **Other follow-ups:** the lvx_v2 `bufferNReg`→N-XVR source expansion (raise
 > `MaxBundleSrcRegs` for buffer64Reg); routing loads/stores through the timing
 > memory path; implicit `scall` arg reads; and the FP/atomic helper stubs (those

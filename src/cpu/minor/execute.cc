@@ -1767,15 +1767,33 @@ Execute::evaluate()
         }
     }
 
-    DPRINTF(Activity, "Need to tick num issued insts: %s%s%s%s%s%s\n",
+    /* A taken branch's bubble is itself a reason to tick: issue is held off
+     * until a cycle that has to arrive.  Without this the CPU can go to
+     * sleep mid-bubble with nothing else pending -- the front end squashed
+     * by that very branch, so no input, and the pipeline drained, so nothing
+     * in flight -- and then nothing exists to wake it again.  That is a
+     * deadlock, not a slow simulation: it froze PolyBench's correlation
+     * kernel at a fixed cycle count, reached only when a bubble and a fully
+     * drained pipeline coincide, which no micro test did. */
+    bool bubble_pending = false;
+    for (const auto &info : executeInfo) {
+        if (cpu.curCycle() < info.issueBubbleUntil) {
+            bubble_pending = true;
+            break;
+        }
+    }
+
+    DPRINTF(Activity, "Need to tick num issued insts: %s%s%s%s%s%s%s\n",
        (num_issued != 0 ? " (issued some insts)" : ""),
        (becoming_stalled ? "(becoming stalled)" : "(not becoming stalled)"),
        (can_issue_next ? " (can issued next inst)" : ""),
        (head_inst_might_commit ? "(head inst might commit)" : ""),
        (lsq.needsToTick() ? " (LSQ needs to tick)" : ""),
-       (interrupted ? " (interrupted)" : ""));
+       (interrupted ? " (interrupted)" : ""),
+       (bubble_pending ? " (taken-branch bubble)" : ""));
 
     bool need_to_tick =
+       bubble_pending || /* Issue is held off until a cycle still to come */
        num_issued != 0 || /* Issued some insts this cycle */
        !becoming_stalled || /* Some FU pipelines can still move */
        can_issue_next || /* Can still issue a new inst */

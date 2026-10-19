@@ -102,6 +102,17 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**MinorCPU could deadlock in a taken-branch bubble** until 2026-10-19, and the
+shape is worth knowing because no micro test could reach it. Issue is held off
+until the bubble's release cycle, but that stall was not itself a reason to
+tick: when the branch had squashed the front end (so no input) and the
+pipeline had drained (so nothing in flight), `need_to_tick` went false, the
+CPU slept, and nothing existed to wake it. Simulated time stopped dead at a
+fixed cycle count. It took an FP-heavy real kernel — PolyBench's `correlation`
+— to coincide those three, which is a coverage gap as much as a bug: the
+validation suite is micro tests and the differential harness runs `atomic`, so
+nothing in CI runs a kernel of that size under `minor`.
+
 **A bundle's results retire at their own latencies** since 2026-10-19, not all
 at the bundle's maximum: a 1-cycle `copyd` sharing a bundle with a 3-cycle
 `ld` is readable after 1. This is the mirror of the per-source read stages,

@@ -434,20 +434,50 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
         return bit >= 0 && bit < 8 && ((predication.suppressMask >> bit) & 1u) != 0;
     };
     auto isBcu = [](unsigned exu) { return exu == EXU_BCU0 || exu == EXU_BCU1; };
+    // Whether a syllable *modifies* memory, from the generated memory
+    // classification. The atomics are counted here rather than with the loads
+    // because their read and their write are one indivisible access: a plain
+    // load beside one has to observe memory before it, and there is no order
+    // that also puts the load before a second atomic's read -- which is why a
+    // bundle holding two accesses to the same address, at least one of them
+    // atomic, is not a legal bundle. Cache maintenance (LVX_MEM_MAINT) writes
+    // no data and stays with the readers.
+    auto writesMem = [](unsigned opcode) {
+        if (opcode >= (unsigned)Opcode__NUM)
+            return false;
+        unsigned m = lvx_reg_deps[opcode].mem;
+        return m == LVX_MEM_STORE || m == LVX_MEM_ATOMIC;
+    };
 
     for (unsigned i = 0; i < numSubInsts; i++)
         runPhase(ctx[i], subInsts[i].opcode, BehaviorFetch, subInsts[i].decoded);
 
-    // Execute the BCU slots first: GUARD is one of them, and its predicate has
-    // to be known before the units it guards run.  Sources were all read in the
-    // fetch pass above, so ordering the execute pass this way is invisible to
-    // everything else.
+    // The execute pass runs in three groups, and both boundaries are load-
+    // bearing.
+    //
+    // The BCU slots first: GUARD is one of them, and its predicate has to be
+    // known before the units it guards run.
+    //
+    // Then everything that does not modify memory -- the loads among it --
+    // before everything that does. A bundle's two LSU slots can hold a load
+    // and a store to the same address, and they issue together, so the load
+    // must read what memory held before the bundle: the same rule the fetch
+    // pass gives the registers, one level down. Without the split the answer
+    // depended on which slot the assembler picked, `sd ... ; ld ...' letting
+    // the load see the stored value and `ld ... ; sd ...' not. Pinned by
+    // tests/lvx/diff/memorder.s.
+    //
+    // Register reads all happened in the fetch pass above, so neither
+    // reordering is observable through a register.
     for (unsigned i = 0; i < numSubInsts; i++)
         if (isBcu(subInsts[i].exu))
             runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute, subInsts[i].decoded);
-    for (unsigned i = 0; i < numSubInsts; i++)
-        if (!isBcu(subInsts[i].exu) && !suppressed(subInsts[i].exu))
-            runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute, subInsts[i].decoded);
+    for (unsigned pass = 0; pass < 2; pass++)
+        for (unsigned i = 0; i < numSubInsts; i++)
+            if (!isBcu(subInsts[i].exu) && !suppressed(subInsts[i].exu) &&
+                writesMem(subInsts[i].opcode) == (pass == 1))
+                runPhase(ctx[i], subInsts[i].opcode, BehaviorExecute,
+                         subInsts[i].decoded);
 
     for (unsigned i = 0; i < numSubInsts; i++)
         if (!suppressed(subInsts[i].exu))

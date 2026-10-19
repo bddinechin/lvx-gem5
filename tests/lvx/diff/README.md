@@ -157,6 +157,19 @@ k's writes. Each of the five cases is built so sequential execution gives a
 different, specific result, and the exit code says which failed -- verified by
 mutating each case and watching it report its own number.
 
+**`check_memorder.sh`** is the same rule one level down, and it found a real
+bug. A bundle's two LSU slots can hold a load and a store to the same address;
+they issue together, so the load must read what memory held before the bundle.
+Both `MEM_load` and `MEM_store` run from the behaviour *execute* phase, and
+execute() ran the non-BCU syllables in slot order -- so `sd ... ; ld ...' let
+the load see the stored value while `ld ... ; sd ...' did not, and which one
+you got depended on the assembler's steering. execute() now runs every
+syllable that only reads memory before every syllable that modifies it, the
+atomics counted as modifiers. No compiled code reaches this (of 50,631 bundles
+across libc and the validation binaries, none holds two memory accesses),
+which is why it went unnoticed and is no reason for the ISS to disagree with
+the architecture.
+
 Two are about the hardware loop, and the second is the sharp one: the loop must
 cost the same whether or not the bundle `LE` falls off happens to hold a
 branch. It did not until 2026-10-18, the back edge having reached the fetch

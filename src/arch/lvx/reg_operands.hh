@@ -36,6 +36,18 @@ enum LvxRegFile : unsigned char
     LVX_RF_GPR = 0, LVX_RF_SFR = 1, LVX_RF_PGR = 2, LVX_RF_QGR = 3
 };
 
+// What an opcode does to memory: the C++ view of reg_operands.inc's LVX_MEM_*
+// macros, which the generator derives from the MEM_* helper calls in the
+// emitted behaviour bodies. The two spellings are checked against each other
+// by the _Static_asserts in generated/behavior.c, the one translation unit
+// that sees both -- so a renumbering on the generator side fails the build
+// rather than silently reclassifying every store as a load.
+enum LvxMemClass : unsigned char
+{
+    LVX_MEM_NONE = 0, LVX_MEM_LOAD = 1, LVX_MEM_STORE = 2,
+    LVX_MEM_ATOMIC = 3, LVX_MEM_MAINT = 4
+};
+
 // GPRs per operand of each file, indexed by LvxRegFile (SFR is a single
 // register of the misc class; the tuples are 2 and 4 general ones).
 inline constexpr unsigned lvxRegFileTupleSize[] = { 1, 1, 2, 4 };
@@ -86,15 +98,19 @@ struct LvxRegDeps
     // Processor@minTaken: 0 for goto/call/ret, 1 for cb/ccb/igoto/icall.
     // 0 for everything that does not transfer.
     unsigned char        xfer;
-    // What this opcode does to memory (LVX_MEM_* in reg_operands.inc), read
-    // out of the emitted behaviour bodies' MEM_* helper calls. The port needs
-    // it at *decode*: serving a load through MinorCPU's load/store queue
-    // instead of functionally inside execute() means marking the bundle
-    // isMemRef() and finding the sub-instruction that holds the access, both
-    // before any behaviour has run. Nothing reads it yet -- the shim's
-    // Behavior_MEM_load is still a synchronous SETranslatingPortProxy read,
-    // so no memory request reaches the cache hierarchy and the D-cache's
-    // counters are all zero.
+    // What this opcode does to memory (LvxMemClass above), read out of the
+    // emitted behaviour bodies' MEM_* helper calls.
+    //
+    // execute() reads it to run the syllables that modify memory after those
+    // that only read it, so a load issued beside a store observes memory as
+    // it was before the bundle whatever slot each landed in (memorder.s).
+    //
+    // It is also what routing loads through MinorCPU's load/store queue needs
+    // at *decode* -- marking the instruction isMemRef() and finding the
+    // sub-instruction holding the access, both before any behaviour has run.
+    // That is still ahead: the shim's Behavior_MEM_load is a synchronous
+    // SETranslatingPortProxy read, so no memory request reaches the cache
+    // hierarchy and the D-cache's counters are all zero.
     unsigned char        mem;
 };
 

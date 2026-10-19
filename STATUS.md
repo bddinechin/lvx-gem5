@@ -236,6 +236,38 @@ Still thin, and in a specific way: two shapes, both stencils, both FP, both
 tiny working sets so neither touches the memory system. Nothing here has a
 pointer chase, an indirect branch, or a working set past the L1.
 
+### Parallel bundle semantics are now tested, and one of them was wrong
+
+A bundle is not a short sequence: its instructions read their sources at the
+same cycle and write afterwards, so a reader beside a writer sees the value
+being replaced and two instructions can exchange registers with no temporary.
+`LvxStaticInst::execute` gets this structurally -- every sub-instruction's
+fetch phase, then every execute phase, then every commit phase -- and nothing
+tested it until `tests/lvx/diff/parallel.s` (the swap, a reader beside a
+writer of the same register, a three-way rotate, and two `cmoved` writes to
+one register under disjoint predicates in both orders). It is worth testing
+now because it is exactly what the micro-op split would break: gem5 executes
+micro-ops in sequence, so one `StaticInst` per syllable makes syllable k+1
+observe k's writes, and the symptom is a wrong answer rather than a crash.
+
+Writing the same test one level down, for memory, found a live bug.
+`MEM_load` and `MEM_store` both run from the behaviour *execute* phase, and
+execute() ran the non-BCU syllables in slot order -- so a bundle holding a
+load and a store to the same address gave an answer that depended on the
+assembler's steering: `sd ... ; ld ...' let the load see the stored value,
+`ld ... ; sd ...' did not. execute() now runs every syllable that only reads
+memory before every syllable that modifies it, reading the generated memory
+classification (`lvx_reg_deps[].mem`); the atomics count as modifiers, since
+their read and write are one indivisible access and no order can also put a
+load before a second atomic's read. Pinned by `check_memorder.sh`, five cases,
+each verified by mutation to report its own number.
+
+No compiled code reaches it -- of 50,631 bundles across libc and the
+validation binaries, none holds two memory accesses -- which is why it went
+unnoticed, and is no reason for the ISS to disagree with the architecture.
+Both are the invariants the micro-op split has to preserve, which is why they
+are tests and not comments.
+
 ### Simulation speed
 
 `Decoder::decode` used to build a fresh `LvxStaticInst` on **every fetch** --

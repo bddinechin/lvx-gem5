@@ -14,6 +14,7 @@
 #include "arch/lvx/pcstate.hh"
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
+#include "arch/lvx/shim.hh"
 #include "base/types.hh"
 #include "cpu/reg_class.hh"
 
@@ -30,7 +31,14 @@ class ISA : public BaseISA
   protected:
     std::vector<RegVal> miscRegFile;
 
+    // The bundle currently executing on this thread: the operand snapshot its
+    // syllables share, plus the predication and write-log state that make a
+    // bundle parallel rather than a short sequence. See BundleExec (shim.hh)
+    // for why it is here and not on the StaticInst.
+    BundleExec _bundleExec;
+
   public:
+    BundleExec &bundleExec() { return _bundleExec; }
     using Params = LvxISAParams;
 
     ISA(const Params &p);

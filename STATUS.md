@@ -268,6 +268,52 @@ unnoticed, and is no reason for the ISS to disagree with the architecture.
 Both are the invariants the micro-op split has to preserve, which is why they
 are tests and not comments.
 
+### The micro-op split landed, and the model was issuing two bundles a cycle
+
+A bundle is now a gem5 macroop whose syllables are micro-ops, one per occupied
+issue slot -- what a memory syllable needs in order to be an `isMemRef()` of
+its own and go through the load/store queue, which is the remaining step. The
+parallel semantics come from a snapshot: the head micro-op runs every
+syllable's fetch phase into the thread's `BundleExec` and each micro-op
+executes and commits out of that, so a register written by one syllable is
+invisible to the next. Functional correctness turns out not to depend on the
+timing model at all -- gem5 executes at commit and commits in order -- which
+is why the model could be wrong while every answer stayed right. It was.
+
+**A bundle used to be one instruction, so it occupied one functional unit, and
+`executeIssueLimit` is 2.** Two consecutive bundles whose syllables landed in
+*different* latency buckets issued in the same cycle; two in the same bucket
+serialised on `MinorFU::alreadyPushed`. So the issue rate was a function of
+functional-unit variety, which is not an LVX property -- one bundle issues per
+cycle, always -- and every multi-bundle dependence chain was understated. Ten
+unrolled `fmulw` into an ALU consumer measured 42 cycles a trip against the 55
+the machine costs, 24% optimistic. **Any `LVX_CPU=minor` figure for code with
+mixed-latency bundles, taken before 2026-10-19, is optimistic by up to that
+much.** The uniform-latency fixtures were unaffected, which is why 24 timing
+assertions passed over it.
+
+Six of those assertions encoded the old behaviour; they now encode the
+derivation instead, as exact cycles a trip, and the pre-split binary fails all
+six. One bundle per cycle is enforced at *issue*
+(`executeOneMacroopPerCycle`), not by narrowing the front end -- doing the
+latter also stops the front end running ahead, so a redirect's turnaround
+never closes and the hardware loop went from 7 cycles a trip to 10.
+
+The split also surfaced a gap in Minor's own macroop support: `Decode` carried
+`predictedTaken` onto the last micro-op but not `triedToPredict`, so a branch
+predicted *not* taken reached Execute looking unpredicted -- which both
+squashed the front end and told the predictor nothing, so the BTB never
+learned and every taken branch paid a full refill. Invisible to an ISA whose
+macroops do not contain branches.
+
+Cost: the atomic CPU is unaffected (766k inst/s on the seidel kernel, against
+770k on record). Under `minor` that kernel runs 1.72 micro-ops per bundle, so
+Minor does that much more per-instruction work; it measures 73k inst/s, with
+no like-for-like pre-split figure to compare.
+
+See `docs/register-buffer-deps.md` for the micro-op order's three load-bearing
+boundaries and what the LSQ step still needs.
+
 ### Simulation speed
 
 `Decoder::decode` used to build a fresh `LvxStaticInst` on **every fetch** --

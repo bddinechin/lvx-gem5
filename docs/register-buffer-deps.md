@@ -257,63 +257,112 @@
 > predictor already is — leaving the commit-time path as the correction for the
 > unpredicted case.
 >
-> **The micro-op split: what it needs, verified 2026-10-19.**
+> **The micro-op split: done 2026-10-19.** A bundle is a gem5 macroop and its
+> syllables are micro-ops (`LvxMicroInst`), one per occupied issue slot. This
+> is what a memory syllable needs to be an `isMemRef()` of its own and go
+> through the load/store queue -- the remaining step -- and it found a
+> modelling error worth more than the split itself (below).
 >
-> It is the last structural gap and it is what routing loads through the LSQ
-> waits on, Minor's queue being one access per dynamic instruction
-> (`MinorDynInst::inLSQ` is a single bool, `findResponse(inst)` singular) while
-> an LVX bundle has two LSU slots. In practice no current code needs that --
-> 50,631 bundles of libc and the validation binaries hold **zero** with two
-> memory accesses, against an instructions-per-bundle spread of 1 to 6 -- but
-> the restriction would be an assumption rather than a guarantee.
+> **The parallel semantics are a snapshot.** gem5 executes micro-ops in
+> sequence, so the head micro-op runs *every* syllable's fetch phase -- every
+> register read the bundle makes -- into the thread's `BundleExec`, and each
+> micro-op then executes and commits out of that. A register written by one
+> syllable is therefore invisible to the next, which is the whole of VLIW
+> parallel read semantics. The state lives on the `ISA` object because the
+> decode cache shares one `StaticInst` between every address holding the same
+> bundle encoding and `execute()` is const; per-thread is also the right
+> lifetime, there being one bundle in flight per thread.
 >
-> Three things turned out better than this section used to assume:
+> Worth keeping: **functional correctness does not depend on the timing model
+> at all.** gem5 executes at *commit* and commits in order, so every older
+> instruction has already written its registers before the head micro-op
+> snapshots them, whatever the scoreboard said. The timing model can be wrong
+> without the answers being wrong -- and was.
 >
-> - **Minor splits macroops already.** `Decode` does it: `isMacroop()` then
->   `fetchMicroop(microPC)`, tracking its own `microopPC` and stopping at
->   `isLastMicroop()`. So the port supplies micro-ops; it does not build a
->   splitter. LVX's `PCState` is already `GenericISA::UPCState<4>`.
-> - **The per-syllable data already exists.** `lvx_reg_deps` is indexed by
->   opcode and carries each one's sources, destinations, latency, per-source
->   read stages, per-destination write stages, transfer cycle and memory class.
->   Nothing more has to be generated.
-> - **The operand staging already exists.** `execute()` runs every
->   sub-instruction's fetch phase into `ctx[i].operands[]` before any execute
->   phase, which is exactly the bundle-entry snapshot parallel reads need.
+> **The micro-op order is not slot order,** and all three of its boundaries
+> are load-bearing (`buildMicroOrder`): non-transfer BCU slots first, because
+> the union of the bundle's GUARD predicates has to be known before any
+> syllable it suppresses runs; then the syllables that do not modify memory
+> before those that do, so a load issued beside a store reads what memory held
+> before the bundle (`memorder.s`); and the control transfer **last**, because
+> a taken branch squashes everything younger and a micro-op of the same bundle
+> is younger than the branch. The last one needed a new generated field,
+> `lvx_reg_deps[].ctl`: `xfer` is the *cycle* of the transfer, so its 0 means
+> both "transfers in ID" and "does not transfer", and `goto` and `guard` are
+> both BCU opcodes with `xfer` 0.
 >
-> What is actually hard is the semantics, and it is all-or-nothing: the moment
-> a bundle is a macroop, Minor executes its syllables in sequence, so syllable
-> k+1 sees k's writes. A parallel swap -- `copyd $r1 = $r2 ; copyd $r2 = $r1`
-> -- then silently returns the wrong answer. **`tests/lvx/diff/parallel.s` and
-> `check_parallel.sh` pin that first**, five cases each built so sequential
-> execution gives a different, specific result; they passed on the unsplit
-> model before this was written, which is the point of having them now.
+> ### What it found: the model issued two bundles per cycle
 >
-> The shape the split wants:
+> A bundle was one instruction, so one bundle occupied one functional unit --
+> and `executeIssueLimit` is 2. Two consecutive bundles whose syllables landed
+> in *different* latency buckets therefore issued in the same cycle, while two
+> in the same bucket serialised on `MinorFU::alreadyPushed`. The issue rate
+> was a function of FU variety, which is not an LVX property at all; one
+> bundle issues per cycle, always.
 >
-> - micro-op 0 stages the *whole bundle's* operands (the fetch pass above) and
->   evaluates the BCU slots, because GUARD's suppression mask has to be known
->   before any syllable it guards runs. Later micro-ops execute and commit from
->   that stash.
-> - the stash cannot live on the `StaticInst`: those are shared across
->   addresses by the decode cache and `execute()` is const. It belongs on the
->   ISA object, which is per thread and reachable through the ExecContext.
-> - a squash is safe without unwinding the stash, because an LVX redirect
->   always resumes at a bundle boundary, so micro-op 0 re-stages before
->   anything reads it. (x86 can resume mid-macroop; LVX cannot.)
-> - the bundle-level work has to be placed deliberately: the next-PC decision,
->   the hardware-loop back edge, `freeRedirect` and `redirectExtra` all belong
->   to the last micro-op, not the first.
+> It understated every multi-bundle dependence chain, and not by a little:
+> `fmulw` into an ALU consumer, ten times unrolled, measured 42 cycles a trip
+> against the 55 the machine costs -- 24% optimistic. The chain `fmulw $r5 ;;
+> addd $r9 = $r5, 1 ;;` is 5 cycles a step (the consumer waits E4-RR, the next
+> producer issues the cycle after it), not 4. Six of `check_timing.sh`'s
+> assertions encoded the old behaviour and now encode the derivation instead,
+> each stated as exact cycles a trip; the pre-split binary fails all six.
 >
-> What it then buys, beyond the LSQ: per-source read stages at syllable
-> granularity rather than the bundle-wide minimum taken today, and the end of
-> the aggregated register lists.
-
-> **Other follow-ups:** the lvx_v2 `bufferNReg`→N-XVR source expansion (raise
-> `MaxBundleSrcRegs` for buffer64Reg); routing loads/stores through the timing
-> memory path; implicit `scall` arg reads; and the FP/atomic helper stubs (those
-> long-latency ops can't run functionally yet, so only the calibration, not full
-> execution, is exercised for them).
+> Three further things this cost, each worth remembering:
+>
+> - **`executeIssueLimit` cannot express "one bundle per cycle".** It counts
+>   instructions and has to be wide enough for a whole bundle, which then also
+>   admits the next one. Hence `executeOneMacroopPerCycle`, which stops issue
+>   for the cycle after the last micro-op of an instruction.
+> - **Do not narrow the front end to get it.** Capping Decode's input at one
+>   bundle a cycle does make issue one bundle a cycle, and also stops the front
+>   end ever running ahead -- so a redirect's turnaround never closes and every
+>   loop pays it every trip. The hardware loop, which has no branch and whose
+>   back edge is free, went from 7 cycles a trip to 10. The front end must run
+>   ahead; what must not happen is two bundles issuing together.
+> - **One FU lane per latency bucket is no longer enough.** A bundle's
+>   syllables are separate instructions, all of them may want the same bucket,
+>   and a `MinorFU` accepts one instruction per cycle. Every bucket now has
+>   `LVX_MAX_BUNDLE_ISSUE` lanes -- generated, summed from the availabilities
+>   of the resources that are issue slots (TINY 4 + BCU 2 + EXT 4), with a
+>   `static_assert` tying `MaxBundleIssue` to it. These are not a resource
+>   model: the assembler's bundling rules already guarantee a legal bundle has
+>   no conflict, so the lanes exist only so that a bundle the hardware issues
+>   in one cycle is issued in one cycle.
+>
+> ### And a gap in Minor's own macroop support
+>
+> `Decode` carried `predictedTaken` and `predictedTarget` onto the last
+> micro-op but not **`triedToPredict`**. Execute distinguishes three cases --
+> correctly predicted, mispredicted, never predicted -- and only the first two
+> reach `Fetch2::updateBranchPrediction`, which returns early on
+> `!triedToPredict`. So a macroop's branch that was predicted *not* taken
+> arrived looking unpredicted: a taken outcome squashed the front end **and**
+> told the predictor nothing, so the BTB never learned the target, missed
+> forever, and every taken branch cost a full refill. The prediction history
+> leaked too, never committed. Invisible to an ISA whose macroops do not
+> contain branches; on LVX every bundle is a macroop and a loop's back edge is
+> one of its syllables, which cost an eight-bundle loop 13 cycles a trip
+> instead of 8.
+>
+> ### Cost
+>
+> The atomic CPU is unaffected: 766k inst/s on the seidel kernel against the
+> 770k on record before the split. Under `minor` the kernel runs 1.72
+> micro-ops per bundle (119,682 ops over 69,765 bundles), so Minor does that
+> much more per-instruction work, plus a wider functional-unit scan; it
+> measures 73k inst/s. There is no like-for-like pre-split `minor` figure.
+>
+> ### What is left
+>
+> Routing memory through the LSQ, which is what the split was for. Two things
+> are now known about it. `MinorDynInst::inLSQ` is a single bool and
+> `findResponse(inst)` is singular, so it is one access per *instruction* --
+> which a micro-op is, so the two LSU slots are no longer a problem. And the
+> `fatal_if` barring memory references under `nonBlockingFuncUnits` is
+> over-broad: only the *early* mem-issue path reaches for `fu->front()`, and
+> that is `executeAllowEarlyMemoryIssue`, a separate parameter. The load
+> shadow and the LSQ can coexist.
 
 ## The problem, precisely
 

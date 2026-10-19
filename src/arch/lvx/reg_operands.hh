@@ -112,6 +112,17 @@ struct LvxRegDeps
     // SETranslatingPortProxy read, so no memory request reaches the cache
     // hierarchy and the D-cache's counters are all zero.
     unsigned char        mem;
+    // Whether the opcode transfers control, i.e. writes NPC. `xfer' cannot
+    // answer this -- its 0 means both "transfers in ID" and "does not
+    // transfer", `goto' and `guard' both being BCU opcodes with xfer 0 -- and
+    // neither can the bundle-level IsControl flag, which says only that some
+    // BCU slot is occupied. Read out of the bodies' writeToStorage_NPC calls,
+    // and cross-checked against the timing annotation by the generator.
+    //
+    // buildMicroOrder() needs it: the transferring syllable has to be the
+    // bundle's last micro-op, because a taken branch squashes everything
+    // younger and a micro-op of the same bundle is younger than the branch.
+    unsigned char        ctl;
 };
 
 // Defined in generated/behavior.c (compiled as C). Indexed by the Opcode enum.

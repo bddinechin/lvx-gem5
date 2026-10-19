@@ -12,6 +12,7 @@
 
 #include "arch/lvx/behavior_iface.hh"
 #include "arch/lvx/int256.h"
+#include "arch/lvx/types.hh"
 #include "base/types.hh"
 
 namespace gem5
@@ -168,6 +169,36 @@ struct BehaviorContext
         npcWritten = false;
         for (auto &s : operands) { s.value = int256_zero; s.flags = AccessNone; }
     }
+};
+
+// The state the syllables of one bundle share while it executes.
+//
+// A bundle is a gem5 macroop and its syllables are micro-ops, which gem5
+// executes one at a time and in sequence -- so the thing that makes the
+// bundle parallel cannot live in any one of them. The first micro-op runs
+// every syllable's fetch phase into these contexts, and the rest execute and
+// commit out of them: once the operands are snapshotted, a register write by
+// one syllable is invisible to the next, which is the whole of VLIW parallel
+// read semantics (tests/lvx/diff/parallel.s).
+//
+// It cannot live on the StaticInst either: the decode cache shares one of
+// those between every address holding the same bundle encoding, and execute()
+// is const. So it lives on the ISA object, which is per thread -- which is
+// also the right lifetime, there being exactly one bundle in flight per
+// thread. Minor and the simple CPUs both execute at commit and commit in
+// order, so a bundle's syllables never interleave with another's.
+struct BundleExec
+{
+    BundlePredication predication;
+    BundleWriteLog writeLog;
+    BehaviorContext ctx[MaxBundleIssue];
+
+    // What the snapshot was taken for, so a micro-op executing against a
+    // snapshot that is not its bundle's is a panic rather than a wrong
+    // answer. `live' is false between bundles.
+    Addr base = 0;
+    unsigned n = 0;
+    bool live = false;
 };
 
 // Run one behavior phase (fetch/execute/commit) of `opcode` against `ctx`.

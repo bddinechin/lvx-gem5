@@ -8,6 +8,8 @@
 #ifndef __ARCH_LVX_TYPES_HH__
 #define __ARCH_LVX_TYPES_HH__
 
+#include "arch/lvx/generated/lvx_stages.h"
+
 #include <cstdint>
 #include <functional>
 
@@ -28,8 +30,14 @@ inline constexpr unsigned MaxInstSyllables = 3;
 // The ten issue slots: BCU0 BCU1 ALU0 ALU1 LSU0 LSU1 EXT0 EXT1 EXT2 EXT3.
 // LVX_MAXBUNDLEISSUE in lvx-binutils include/opcode/lvx.h, and the count the
 // Exu enum in static_inst.cc enumerates -- a static_assert there ties the two
-// together so they cannot drift.
+// together so they cannot drift. The description's own count is generated
+// (LVX_MAX_BUNDLE_ISSUE, summed from the availabilities of the resources that
+// are slots), and is the authority; this is here because a constexpr is what
+// sizes the arrays, and the assert below is what keeps it honest.
 inline constexpr unsigned MaxBundleIssue = 10;
+static_assert(MaxBundleIssue == LVX_MAX_BUNDLE_ISSUE,
+              "the issue-slot count changed in the ISA description; "
+              "MaxBundleIssue must follow LVX_MAX_BUNDLE_ISSUE");
 
 // IMMX, the immediate-extension syllables: availability 8 in Resource.yml.
 inline constexpr unsigned MaxBundleImmx = 8;

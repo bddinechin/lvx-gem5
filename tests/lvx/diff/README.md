@@ -170,6 +170,15 @@ across libc and the validation binaries, none holds two memory accesses),
 which is why it went unnoticed and is no reason for the ISS to disagree with
 the architecture.
 
+`check_timing.sh` grew two assertions and corrected six on 2026-10-19, when
+the micro-op split began enforcing one bundle per cycle. The six had been
+calibrated against a model that issued two bundles in a cycle whenever their
+syllables used different latency buckets, so they encoded costs up to 24%
+below the machine's; each now states its expectation as exact cycles a trip,
+derived in a comment from the recurrence, the loop's bundle count and the
+branch penalty. The pre-split binary fails all six, which is the check that
+the new expectations have teeth.
+
 Two are about the hardware loop, and the second is the sharp one: the loop must
 cost the same whether or not the bundle `LE` falls off happens to hold a
 branch. It did not until 2026-10-18, the back edge having reached the fetch

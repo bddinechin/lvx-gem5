@@ -78,6 +78,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
       setTraceTimeOnCommit(params.executeSetTraceTimeOnCommit),
       setTraceTimeOnIssue(params.executeSetTraceTimeOnIssue),
       allowEarlyMemIssue(params.executeAllowEarlyMemoryIssue),
+      oneMacroopPerCycle(params.executeOneMacroopPerCycle),
       noCostFUIndex(fuDescriptions.funcUnits.size() + 1),
       takenBranchBubble(params.takenBranchBubble),
       nonBlockingFuncUnits(params.nonBlockingFuncUnits),
@@ -646,6 +647,14 @@ Execute::issue(ThreadID thread_id)
     /* Number of memory ops issues this cycle to check for memoryIssueLimit */
     unsigned num_mem_insts_issued = 0;
 
+    /* Set once a whole macro-op has issued, when the ISA issues at most one
+     * of those per cycle. The limit cannot be expressed by issueLimit, which
+     * counts instructions and has to be wide enough to admit a whole macro-op
+     * in one cycle -- and would then also admit the next one. The front end
+     * is deliberately left free to run further ahead than this, since that is
+     * what lets it cover a redirect's turnaround. */
+    bool macroop_issued = false;
+
     do {
         MinorDynInstPtr inst = insts_in->insts[thread.inputIndex];
         Fault fault = inst->fault;
@@ -918,6 +927,15 @@ Execute::issue(ThreadID thread_id)
 
                 if (num_insts_issued == issueLimit)
                     DPRINTF(MinorExecute, "Reached inst issue limit\n");
+
+                if (oneMacroopPerCycle &&
+                    (!inst->staticInst->isMicroop() ||
+                      inst->staticInst->isLastMicroop()))
+                {
+                    DPRINTF(MinorExecute, "Issued a whole macroop; no more"
+                        " this cycle\n");
+                    macroop_issued = true;
+                }
             }
 
             thread.inputIndex++;
@@ -942,7 +960,8 @@ Execute::issue(ThreadID thread_id)
         fu_index != numFuncUnits && /* Not visited all FUs */
         issued && /* We've not yet failed to issue an instruction */
         num_insts_issued != issueLimit && /* Still allowed to issue */
-        num_mem_insts_issued != memoryIssueLimit);
+        num_mem_insts_issued != memoryIssueLimit &&
+        !macroop_issued /* One macro-op per cycle, where the ISA says so */);
 
     return num_insts_issued;
 }

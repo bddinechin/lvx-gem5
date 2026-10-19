@@ -39,6 +39,20 @@ if cpu_kind == "minor":
     bubble = os.environ.get("LVX_TAKEN_BUBBLE")
     if bubble is not None:
         cpu.takenBranchBubble = int(bubble)
+    # LVX_MINOR_PARAMS="name=value,..." overrides any other minor parameter,
+    # for attributing a cycle count to one of them. Integers and the two bool
+    # spellings; anything else is a typo and should fail loudly rather than be
+    # set to a string. Like LVX_TAKEN_BUBBLE, this is for measurement -- do
+    # not set it for a performance run.
+    extra = os.environ.get("LVX_MINOR_PARAMS")
+    if extra:
+        for item in extra.split(","):
+            name, _, value = item.partition("=")
+            name, value = name.strip(), value.strip()
+            if value in ("True", "False"):
+                setattr(cpu, name, value == "True")
+            else:
+                setattr(cpu, name, int(value))
 elif cpu_kind == "timing":
     cpu = LvxTimingSimpleCPU()
 else:

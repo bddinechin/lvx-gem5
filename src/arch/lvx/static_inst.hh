@@ -2,16 +2,25 @@
  * LVX ISA support for gem5 — LvxStaticInst (Layer C).
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One LvxStaticInst represents a whole VLIW bundle. execute() runs the bundle's
- * instructions with VLIW parallel semantics — every instruction's fetch phase
- * (register reads), then every execute phase, then every commit phase (register
- * writes) — dispatching each through the MDS behavior via the Layer B shim.
+ * One LvxStaticInst is a whole VLIW bundle, and it is a gem5 *macroop*: its
+ * syllables are micro-ops (LvxMicroInst), one per issue slot used, which is
+ * what lets a memory syllable be an isMemRef() of its own and go through the
+ * load/store queue. gem5 executes micro-ops in sequence, so the bundle's
+ * parallel semantics come from a snapshot: the first micro-op runs every
+ * syllable's fetch phase (all the register reads) into the thread's BundleExec,
+ * and each micro-op then executes and commits out of that -- so a write by one
+ * syllable is invisible to the next. The last micro-op does the bundle-level
+ * work: the next PC, the hardware-loop back edge, the redirect flags.
+ *
+ * The micro-op order is not slot order, and three of its properties are
+ * load-bearing; see buildMicroOrder() in the implementation.
  */
 #ifndef __ARCH_LVX_STATIC_INST_HH__
 #define __ARCH_LVX_STATIC_INST_HH__
 
 #include <vector>
 
+#include "arch/lvx/shim.hh"
 #include "arch/lvx/types.hh"
 #include "cpu/reg_class.hh"
 #include "cpu/static_inst.hh"
@@ -56,37 +65,37 @@ struct SubInst
     uint64_t decoded[MaxOperandsPerInst] = {};
 };
 
-class LvxStaticInst : public StaticInst
+class LvxStaticInst;
+
+// One syllable of a bundle, as a gem5 micro-op.
+//
+// It holds no decoded state of its own: everything comes from its bundle,
+// which it keeps alive by reference. `index' is its position in the micro-op
+// order, not the syllable's slot -- macro->microOrder[index] is the syllable.
+//
+// Only the head micro-op (index 0) carries source registers, and it carries
+// the *bundle's*, deduplicated, exactly as the unsplit bundle did. That is
+// what keeps a bundle's issue atomic: every later micro-op's sources are a
+// subset of the head's with a read stage no earlier, so if the head's sources
+// are ready they all are, and no micro-op can stall mid-bundle and split one
+// bundle's issue across two cycles. Destinations are per syllable, each
+// stamped with its own instruction's latency by its own functional unit.
+class LvxMicroInst : public StaticInst
 {
   protected:
-    ExtMachInst machInst;
-    unsigned bundleBytes;
-    unsigned numSubInsts = 0;
-    SubInst subInsts[MaxBundleIssue];
+    StaticInstPtr macro;
+    unsigned index;
 
-    // Backing storage for the base class's _srcRegIdxPtr / _destRegIdxPtr,
-    // populated in the constructor from the generated lvx_reg_deps table.
+    // Sized for the two cases rather than for the worst of them: the head
+    // needs the bundle's aggregated sources, the others need none.
     RegId srcRegIdxArr[MaxBundleSrcRegs];
-    RegId destRegIdxArr[MaxBundleDestRegs];
+    RegId destRegIdxArr[MaxInstDestRegs];
 
-    // Per-source relative latency, parallel to srcRegIdxArr: see
-    // StaticInst::srcRegsRelativeLats. Empty unless some operand of this
-    // bundle is read later than RR, so the common bundle costs nothing.
     std::vector<Cycles> srcRelLats;
-
-    // Per-destination relative latency, parallel to destRegIdxArr: see
-    // StaticInst::destRegsRelativeLats. A bundle retires at its slowest
-    // instruction's latency, but each result is written at its own stage, so
-    // this is how much earlier than the bundle each destination is readable.
-    // Empty unless the bundle mixes latencies, so a uniform bundle costs
-    // nothing.
     std::vector<Cycles> destRelLats;
 
-    // Populate the src/dest register lists from the generated lvx_reg_deps table.
-    void setUpRegs();
-
   public:
-    LvxStaticInst(const ExtMachInst &emi);
+    LvxMicroInst(const char *mnem, StaticInstPtr macroop, unsigned idx);
 
     const std::vector<Cycles> *
     srcRegsRelativeLats() const override
@@ -99,6 +108,56 @@ class LvxStaticInst : public StaticInst
     {
         return destRelLats.empty() ? nullptr : &destRelLats;
     }
+
+    Fault execute(ExecContext *xc,
+                  trace::InstRecord *traceData) const override;
+
+    void advancePC(PCStateBase &pc_state) const override;
+
+    std::string generateDisassembly(
+            Addr pc, const loader::SymbolTable *symtab) const override;
+};
+
+class LvxStaticInst : public StaticInst
+{
+    friend class LvxMicroInst;
+
+  protected:
+    ExtMachInst machInst;
+    unsigned bundleBytes;
+    unsigned numSubInsts = 0;
+    SubInst subInsts[MaxBundleIssue];
+
+    // The macroop carries no register lists of its own: it is never issued
+    // and never executed, so the dependency information belongs to the
+    // micro-ops, each of which builds its own from the generated table.
+
+    // The order the syllables execute in, and the micro-ops themselves.
+    // microOrder[m] is the syllable index of micro-op m; there are
+    // numSubInsts of each.
+    unsigned char microOrder[MaxBundleIssue] = {};
+    mutable StaticInstPtr microops[MaxBundleIssue];
+
+    void buildMicroOrder();
+
+  public:
+    LvxStaticInst(const ExtMachInst &emi);
+
+    // A bundle is always a macroop, even when it holds one syllable: one code
+    // path rather than two, and the one-syllable case is a macroop with one
+    // micro-op, which costs an indirection and nothing else. isMacroop() is
+    // not virtual -- it reads flags[IsMacroop], set in the constructor.
+    StaticInstPtr fetchMicroop(MicroPC upc) const override;
+
+    // Run micro-op `mi': the operand snapshot if it is the head, then that
+    // syllable's execute and commit phases, then the bundle-level work if it
+    // is the last. LvxMicroInst::execute delegates here.
+    Fault executeMicro(ExecContext *xc, trace::InstRecord *traceData,
+                       unsigned mi) const;
+
+    // Where execution goes next: the staged NPC, the hardware-loop back edge
+    // and the redirect flags. Run by the last micro-op.
+    void finishBundle(ExecContext *xc, BundleExec &be) const;
 
     Fault execute(ExecContext *xc,
                   trace::InstRecord *traceData) const override;

@@ -455,6 +455,15 @@ class BaseMinorCPU(BaseCPU):
         False, "Set inst. trace times to be issue times"
     )
 
+    executeOneMacroopPerCycle = Param.Bool(
+        False,
+        "Issue at most one macro-op per cycle: stop issuing for the cycle"
+        " after the last micro-op of an instruction. For an ISA whose"
+        " macro-op is the architectural issue unit -- a VLIW bundle -- where"
+        " executeIssueLimit has to be wide enough for a whole one and would"
+        " otherwise let two issue together.",
+    )
+
     executeAllowEarlyMemoryIssue = Param.Bool(
         True,
         "Allow mem refs to be issued to the LSQ before reaching the head of"

@@ -114,6 +114,10 @@ class Execute : public Named
      *  of the in flight insts queue if their dependencies are met */
     bool allowEarlyMemIssue;
 
+    /** Issue at most one macro-op per cycle; see
+     *  BaseMinorCPU.py's executeOneMacroopPerCycle. */
+    bool oneMacroopPerCycle;
+
     /** The FU index of the non-existent costless FU for instructions
      *  which pass the MinorDynInst::isNoCostInst test */
     unsigned int noCostFUIndex;

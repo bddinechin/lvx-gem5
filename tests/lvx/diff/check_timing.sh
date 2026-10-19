@@ -122,6 +122,17 @@ TUPLES=3000     # TRIPS * UNROLL * 6 in timing_tuple.s: tuple-lane load/use pair
 HWTRIPS=1000    # .equ TRIPS in timing_hwloop.s
 HWBUNDLES=7     # bundles in its loop body
 STEPS=20000     # TRIPS * UNROLL in timing_bypass.s
+BPTRIPS=2000    # .equ TRIPS in timing_bypass.s
+BPUNROLL=10     # .equ UNROLL there
+LDTRIPS=50      # .equ TRIPS in timing_ld.s
+MIXTRIPS=1000   # .equ TRIPS in timing_mixlen.s
+MIX_BUNDLES=22  # its loop body: 10 * (2-syllable + 1-syllable) + latch + cb
+
+# What a taken conditional branch costs from its own issue to the target's:
+# one cycle to leave its bundle, minTaken, and one more because a `cb' waits
+# for its comparison and settles the next PC in RR rather than ID
+# (Opcode@timing's `%0: Transfer.1').
+BRANCH_COST=$(( 1 + MIN_TAKEN + 1 ))
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 
@@ -249,8 +260,22 @@ report "ld.u costs SR-CR more per copy than ld" \
        "$(per_copy $(( ldu - ldc )))" "$UNCACHED_EXTRA"
 
 # 4. a taken branch between the load and its first use costs nothing: its
-#    stall elapses against the load's latency.  Same binary, two penalties.
-report "taken branch before first use is free" "$ldb" "$ldb0"
+#    stall elapses against the load's latency.
+#
+#    Stated as a comparison between the two binaries rather than as "the
+#    penalty is zero", because one branch in each of them is not in a load's
+#    shadow: the loop's own latch `cb', which issues after the last use has
+#    already consumed the load.  There is nothing in flight for its stall to
+#    elapse against, so it costs BRANCH_COST, and the loop pays that once a
+#    trip in both binaries.  What the twenty in-loop `goto's add on top is
+#    the thing being measured, and it is zero.
+#
+#    This read `ldb == ldb0' until 2026-10-19 and passed, because the model
+#    then let two bundles issue in one cycle: the target of the latch branch
+#    went out beside the branch itself and the penalty vanished. A VLIW
+#    bundle is the issue unit and one issues per cycle, so it cannot.
+report "the in-loop branches add nothing to the penalty" \
+       "$(( ldb - ldb0 ))" "$(( ldu - ldu0 ))"
 
 # 5. and so is the latch branch of a loop whose recurrence is a load.  The
 #    uncached loop absorbs it whole -- 16 cycles of recurrence against a
@@ -263,7 +288,11 @@ report "taken branch before first use is free" "$ldb" "$ldb0"
 hundredths_per_trip() { echo $(( ($1 * 100 + TRIPS / 2) / TRIPS )); }
 report_under "branch stall mostly dangles against ld" \
        "$(hundredths_per_trip $(( ldc - ldc0 )))" 100
-report "branch stall dangles against ld.u" "$ldu" "$ldu0"
+#    And what shows is one branch a trip, not twenty-one: the uncached
+#    recurrence is 16 cycles and the twenty copies' branches all elapse
+#    inside it, leaving only the latch's own BRANCH_COST.
+report_under "only the loop's latch branch shows against ld.u" \
+       "$(( (ldu - ldu0 + LDTRIPS / 2) / LDTRIPS ))" "$(( BRANCH_COST + 1 ))"
 
 # 6. the shadow: eight independent bundles between the load and its use cost
 #    nothing, the load's latency covering them.
@@ -278,28 +307,74 @@ report "hw-loop back edge is free" "$hwl" "$hwl0"
 report "hw-loop costs the same with no branch in it" \
        "$(( (hwn + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
 
-# 7a. alternating bundle lengths cost nothing: ten copies of a two-cycle
-#     recurrence, plus the latch and the taken conditional branch.
+# 7a. alternating bundle lengths cost nothing. The loop's 22 bundles bound it,
+#     not its 20-cycle recurrence: a bundle issues per cycle whatever its
+#     length, so the trip is its bundle count plus the latch branch. (The
+#     expectation was the recurrence alone until 2026-10-19, when one bundle
+#     per cycle started being enforced -- the two differ by the latch and the
+#     branch bundle, which used to issue beside something else.)
 report "alternating bundle lengths cost nothing" \
-       "$(per_trip "$mix")" "$(( 10 * 2 + 1 + MIN_TAKEN + 1 ))"
+       "$(( (mix + MIXTRIPS / 2) / MIXTRIPS ))" \
+       "$(( MIX_BUNDLES + MIN_TAKEN + 1 ))"
 
 # 8. a late-read operand shortens the dependence into it, each pair measured
 #    against its own control.
-per_step() { echo $(( ($1 + STEPS / 2) / STEPS )); }
-mul_lat="$(per_step "$bpmul")"
-alu_lat="$(per_step "$bpalu")"
-report "mulw chain costs E2-RR (control)" \
-       "$mul_lat" "$(( STAGE_E2 - STAGE_RR ))"
+#
+#    Asserted as exact cycles a trip rather than as a rounded cost per step.
+#    A step's cost is not the whole story once a bundle issues per cycle: the
+#    recurrence sets how far apart the chain's bundles are, and the trip adds
+#    the latch, the branch bundle and the branch's own penalty. Rounding a
+#    per-step average over ten unrolled steps hid that in a remainder -- and
+#    hid it *inconsistently*, since the four loops have different bundle
+#    counts, so two of these assertions used to pass only because 1.21 and
+#    4.21 round to 1 and 4 while 1.51 and 5.51 do not.
+#
+#    A trip issues: the chain, one bundle per step or two; then the latch and
+#    the branch, one cycle each; then the branch's penalty. So for a chain of
+#    one bundle per step and recurrence L,
+#
+#        (UNROLL-1) * L  +  2  +  BRANCH_COST
+#
+#    and for two bundles per step with the dependence D into the second, the
+#    step is D+1 and the last step's second bundle is D later,
+#
+#        (UNROLL-1) * (D+1)  +  D  +  2  +  BRANCH_COST
+#
+#    A one-bundle chain is also *recurrent* -- each step reads what the last
+#    wrote -- so the next trip's first bundle waits on the last one's result,
+#    not only on the branch. The trip costs whichever is later. That is what
+#    separates fsqrtw from the rest: 13 cycles of recurrence outlast the
+#    branch, so its trip is the chain alone, where mulw's 2 do not.
+per_bptrip() { echo $(( ($1 + BPTRIPS / 2) / BPTRIPS )); }
+chain1() {
+    local after=$(( 2 + BRANCH_COST ))
+    [ "$1" -gt "$after" ] && after=$1
+    echo $(( (BPUNROLL - 1) * $1 + after ))
+}
+#    A two-bundle chain here is not recurrent (the multiplier's sources are
+#    loop constants), so only the branch follows it.
+chain2() { echo $(( (BPUNROLL - 1) * ($1 + 1) + $1 + 2 + BRANCH_COST )); }
+
+report "mulw chain costs E2-RR a step (control)" \
+       "$(per_bptrip "$bpmul")" "$(chain1 $(( STAGE_E2 - STAGE_RR )))"
 report "maddw accumulator is read a stage later" \
-       "$(per_step "$bpmac")" "$(( mul_lat - 1 ))"
+       "$(per_bptrip "$bpmac")" "$(chain1 $(( STAGE_E2 - STAGE_RR - 1 )))"
 report "fmulw to an RR consumer costs E4-RR (control)" \
-       "$alu_lat" "$(( STAGE_E4 - STAGE_RR ))"
+       "$(per_bptrip "$bpalu")" "$(chain2 $(( STAGE_E4 - STAGE_RR )))"
 report "fmulw to a store is a cycle closer" \
-       "$(per_step "$bpst")" "$(( alu_lat - 1 ))"
+       "$(per_bptrip "$bpst")" "$(chain2 $(( STAGE_E4 - STAGE_RR - 1 )))"
+#    And the relaxation itself, as the difference between each pair -- which
+#    cancels every loop constant. One cycle off each of the nine dependences
+#    the unrolled body chains, and for the two-bundle pair one more, the last
+#    step's own dependence being a cycle shorter too.
+report "the late read is worth a cycle a step (accumulator)" \
+       "$(per_bptrip $(( bpmul - bpmac )))" "$(( BPUNROLL - 1 ))"
+report "the late read is worth a cycle a step (stored value)" \
+       "$(per_bptrip $(( bpalu - bpst )))" "$BPUNROLL"
 
 # 8a. FD has a bucket of its own.
-report "fsqrtw chain costs FD-RR" \
-       "$(per_step "$bpfd")" "$(( STAGE_FD - STAGE_RR ))"
+report "fsqrtw chain costs FD-RR a step" \
+       "$(per_bptrip "$bpfd")" "$(chain1 $(( STAGE_FD - STAGE_RR )))"
 
 # 9. a wide load's lanes: a scalar read of any one register of the pair `lq'
 #    wrote, or of the quad `lo' wrote, waits the whole latency.

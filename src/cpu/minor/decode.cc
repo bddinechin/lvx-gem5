@@ -204,6 +204,26 @@ Decode::evaluate()
                         output_inst->predictedTaken = inst->predictedTaken;
                         set(output_inst->predictedTarget,
                                 inst->predictedTarget);
+                        /* And carry over *that a prediction was attempted*,
+                         * not just its outcome. Execute distinguishes three
+                         * cases -- correctly predicted, mispredicted, and
+                         * never predicted -- and only the first two reach
+                         * Fetch2::updateBranchPrediction, which returns
+                         * early on !triedToPredict. Without this a macroop's
+                         * branch that was predicted *not* taken arrives at
+                         * Execute looking unpredicted, so a taken outcome
+                         * both squashes the front end and tells the
+                         * predictor nothing: the BTB never learns the
+                         * target, so it misses forever and every taken
+                         * branch costs a full refill. It also leaks the
+                         * prediction history, which is never committed.
+                         *
+                         * Invisible to an ISA whose macroops do not contain
+                         * branches. On LVX every bundle is a macroop and a
+                         * loop's back edge is one of its syllables, so a
+                         * eight-bundle loop cost 13 cycles a trip instead of
+                         * 8 (tests/lvx/diff/check_timing.sh). */
+                        output_inst->triedToPredict = inst->triedToPredict;
                     }
 
                     DPRINTF(Decode, "Microop decomposition inputIndex:"

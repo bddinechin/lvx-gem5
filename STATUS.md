@@ -102,6 +102,23 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**A bundle's results retire at their own latencies** since 2026-10-19, not all
+at the bundle's maximum: a 1-cycle `copyd` sharing a bundle with a 3-cycle
+`ld` is readable after 1. This is the mirror of the per-source read stages,
+and it did *not* need the micro-op split this file long said it would — a
+vector parallel to `destRegIdxArr`, and `markupInstDests` taking a
+per-destination reduction, is the whole of it. Verified in the scoreboard: one
+bundle issued at cycle 216 marks `$r0` ready at 217 and `$r6` at 219.
+
+**Bundle lengths reach fetch** since 2026-10-19, which was a much larger error
+than the one above. A bundle's length is known only at decode, and the PC
+state's npc came from the *previous* bundle's, so every change of bundle
+length read to Execute as a taken branch and squashed the pipeline — six times
+the cycles on a loop that alternates lengths, and wrong in proportion to how
+much real code's bundle lengths vary. `divmodvx` re-measures 6.7x faster on
+its native route. Every hand-written timing fixture was uniform-length, which
+is why nothing caught it; `timing_mixlen.s` exists now.
+
 **The hardware-loop back edge is free**, on both sides, as of 2026-10-18. It
 was already exempt from the taken-branch penalty (`freeRedirect`), but it
 reached the *fetch* side only through Minor's branch predictor, which Fetch2
@@ -169,10 +186,6 @@ Still open, in order of size:
   cost LVX does not have with a bigger one it also does not have. Making the
   penalty genuinely independent of prediction needs the front end restructured,
   not a parameter.
-- **A result's latency is the whole bundle's**, so a bundle holding both an
-  `ffmaw` and an `addd` marks both ready at the maximum of the two. This is
-  the destination counterpart of the per-source read stages (done), and the
-  one thing in this list that does need the micro-op split.
 - **`XVR` and the RISC-V `RV` register file are still untracked**, so an
   extension-unit or RV64G dependence stalls nothing.
 

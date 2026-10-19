@@ -254,6 +254,14 @@ LvxStaticInst::setUpRegs()
     // store's value but also somebody's address relaxes by nothing.
     unsigned char relLat[MaxBundleSrcRegs] = {};
 
+    // And per destination, the latency of the instruction that writes it --
+    // not of the bundle. A bundle retires at the slowest of its
+    // instructions, but each writes its result at its own stage, so a
+    // 1-cycle copyd sharing a bundle with a 3-cycle ld is readable after 1.
+    // Where two instructions of one bundle write the same register the later
+    // write is what a consumer must wait for, so this takes the max.
+    unsigned char destLat[MaxBundleDestRegs] = {};
+
     auto add = [&](const RegId &r, bool dest, unsigned char rel = 0) {
         // Dedup: a register read/written by two instructions of the bundle is one
         // dependency, and dropping the duplicate keeps a valid WAW off the list.
@@ -263,10 +271,14 @@ LvxStaticInst::setUpRegs()
         // so this is unreachable unless an operand kind grows.
         if (dest) {
             for (int i = 0; i < _numDestRegs; ++i)
-                if (destRegIdxArr[i] == r) return;
+                if (destRegIdxArr[i] == r) {
+                    if (rel > destLat[i]) destLat[i] = rel;
+                    return;
+                }
             panic_if(_numDestRegs >= (int)MaxBundleDestRegs,
                      "LVX bundle has more than %u destination registers",
                      MaxBundleDestRegs);
+            destLat[_numDestRegs] = rel;
             setDestRegIdx(_numDestRegs++, r);
         } else {
             for (int i = 0; i < _numSrcRegs; ++i)
@@ -288,16 +300,9 @@ LvxStaticInst::setUpRegs()
         if (si.opcode >= (unsigned)Opcode__NUM)
             continue;
         const LvxRegDeps &d = lvx_reg_deps[si.opcode];
-        auto addDst = [&](const RegId &r) { add(r, true); };
-        for (unsigned k = 0; k < d.nsrc; ++k) {
-            const unsigned char rel = d.src[k].relLat;
-            forEachReg(d.src[k], si.decoded,
-                       [&](const RegId &r) { add(r, false, rel); });
-        }
-        for (unsigned k = 0; k < d.ndst; ++k)
-            forEachReg(d.dst[k], si.decoded, addDst);
 
-        // A load's latency is not a property of its opcode alone: the `variant'
+        // This instruction's own latency, which its destinations are stamped
+        // with. A load's is not a property of its opcode alone: the `variant'
         // modifier moves the loaded operand's write stage, so `ld' returns from
         // the L1 at CR (latency 3) while `ld.u'/`ld.us' bypass it and return at
         // SR (latency 15). `lq' and `lq.u' are one Opcode with one Behavior, so
@@ -314,6 +319,15 @@ LvxStaticInst::setUpRegs()
                 opLat = d.varLat[v];
         }
         if (opLat > lat) lat = opLat;   // bundle latency = max over syllables
+
+        for (unsigned k = 0; k < d.nsrc; ++k) {
+            const unsigned char rel = d.src[k].relLat;
+            forEachReg(d.src[k], si.decoded,
+                       [&](const RegId &r) { add(r, false, rel); });
+        }
+        for (unsigned k = 0; k < d.ndst; ++k)
+            forEachReg(d.dst[k], si.decoded,
+                       [&](const RegId &r) { add(r, true, opLat); });
     }
 
     // Route the bundle to the MinorCPU functional unit whose opLat equals its
@@ -343,6 +357,20 @@ LvxStaticInst::setUpRegs()
             srcRelLats[i] = Cycles(relLat[i]);
     } else {
         srcRelLats.clear();
+    }
+
+    // Likewise for the destinations, as how much *earlier* than the bundle
+    // each is readable. A bundle whose instructions all have the same
+    // latency -- which is most of them -- publishes nothing.
+    bool anyEarly = false;
+    for (int i = 0; i < _numDestRegs; ++i)
+        if (destLat[i] < lat) anyEarly = true;
+    if (anyEarly) {
+        destRelLats.resize(_numDestRegs);
+        for (int i = 0; i < _numDestRegs; ++i)
+            destRelLats[i] = Cycles(lat - destLat[i]);
+    } else {
+        destRelLats.clear();
     }
 
     if (debug::LvxRegs) {

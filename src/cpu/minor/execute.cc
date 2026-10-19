@@ -870,7 +870,11 @@ Execute::issue(ThreadID thread_id)
                             extra_dest_retire_lat +
                             extra_assumed_lat,
                             cpu.getContext(thread_id),
-                            issued_mem_ref && extra_assumed_lat == Cycles(0));
+                            issued_mem_ref && extra_assumed_lat == Cycles(0),
+                            /* an ISA may write its several results at
+                             * different stages; see destRegsRelativeLats */
+                            inst->isFault() ? nullptr
+                                : inst->staticInst->destRegsRelativeLats());
 
                         /* Push the instruction onto the inFlight queue so
                          *  it can be committed in order */

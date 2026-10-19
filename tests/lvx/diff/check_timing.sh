@@ -18,7 +18,7 @@
 #              modifier (Modifier@variant's LoadedAt) and reaches the ISS
 #              through Opcode@timing; without it every load cost an L1 hit.
 #
-# Twenty-two assertions, each failing alone if its piece regresses:
+# Twenty-three assertions, each failing alone if its piece regresses:
 #
 #   1. a taken *conditional* branch costs minTaken + 1, and a taken
 #      *unconditional* one minTaken -- the difference being when each settles
@@ -63,6 +63,12 @@
 #      bundle count, and it costs the *same* whether or not the bundle LE
 #      falls off happens to hold a branch, which is what the refill used to
 #      depend on.
+#   7a. a loop whose bundles alternate in length costs its recurrence and no
+#      more.  A bundle's length is known only at decode, so the PC state's
+#      npc comes from the previous bundle's, and when that went uncorrected
+#      every change of length read as a taken branch and squashed the
+#      pipeline -- six times the cycles.  Every other fixture here is
+#      uniform-length, which is why this one has to exist.
 #   8. an operand read later than RR shortens the dependence into it: a
 #      store's stored value and the integer MAC's accumulator are read at E1,
 #      so a producer feeding one is a cycle closer than its latency says.
@@ -174,6 +180,7 @@ build timing_ld  ldf --defsym UNCACHED=1 --defsym FILLERS=1 \
 build timing_hwloop hwl        || { echo "timing_hwloop build failed"; exit 2; }
 build timing_hwloop hwn --defsym NOBCU=1 \
                                || { echo "timing_hwloop NOBCU build failed"; exit 2; }
+build timing_mixlen mix        || { echo "timing_mixlen build failed"; exit 2; }
 build timing_bypass bpmul      || { echo "timing_bypass build failed"; exit 2; }
 build timing_bypass bpmac --defsym MAC=1 \
                                || { echo "timing_bypass MAC build failed"; exit 2; }
@@ -194,13 +201,14 @@ ldb0="$(cycles ldb 0)";  ldb="$(cycles ldb "$MIN_TAKEN")"
 ldf="$(cycles ldf "$MIN_TAKEN")"
 hwl0="$(cycles hwl 0)";  hwl="$(cycles hwl "$MIN_TAKEN")"
 hwn="$(cycles hwn "$MIN_TAKEN")"
+mix="$(cycles mix "$MIN_TAKEN")"
 bpmul="$(cycles bpmul "$MIN_TAKEN")"; bpmac="$(cycles bpmac "$MIN_TAKEN")"
 bpalu="$(cycles bpalu "$MIN_TAKEN")"; bpst="$(cycles bpst  "$MIN_TAKEN")"
 tpc="$(cycles tpc "$MIN_TAKEN")"
 tpu="$(cycles tpu "$MIN_TAKEN")"
 for v in "$alu0" "$alu" "$unc0" "$unc" "$ant0" "$ant" \
          "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" \
-         "$ldf" "$hwl0" "$hwl" "$hwn" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
+         "$ldf" "$hwl0" "$hwl" "$hwn" "$mix" "$bpmul" "$bpmac" "$bpalu" "$bpst" \
          "$tpc" "$tpu"; do
     [ -n "$v" ] || { echo "a run produced no cycle count"; exit 2; }
 done
@@ -262,6 +270,11 @@ report "hw-loop back edge is free" "$hwl" "$hwl0"
 report "hw-loop costs the same with no branch in it" \
        "$(( (hwn + HWTRIPS / 2) / HWTRIPS ))" "$HWBUNDLES"
 
+# 7a. alternating bundle lengths cost nothing: ten copies of a two-cycle
+#     recurrence, plus the latch and the taken conditional branch.
+report "alternating bundle lengths cost nothing" \
+       "$(per_trip "$mix")" "$(( 10 * 2 + 1 + MIN_TAKEN + 1 ))"
+
 # 8. a late-read operand shortens the dependence into it, each pair measured
 #    against its own control.
 per_step() { echo $(( ($1 + STEPS / 2) / STEPS )); }
@@ -294,6 +307,7 @@ printf 'alu %s/%s   ld %s/%s   ld.u %s/%s   ld.u+br %s/%s   (bubble 0 / %s)\n' \
     "$alu0" "$alu" "$ldc0" "$ldc" "$ldu0" "$ldu" "$ldb0" "$ldb" "$MIN_TAKEN"
 printf 'tuple lanes: lq/lo %s   lq.u/lo.u %s   shadow(8 fillers) %s\n' \
     "$tpc" "$tpu" "$ldf"
+printf 'mixed bundle lengths %s\n' "$mix"
 printf 'hw loop %s/%s  no-branch body %s   (bubble 0 / %s)\n' \
     "$hwl0" "$hwl" "$hwn" "$MIN_TAKEN"
 printf 'late reads: mulw %s maddw %s   fmulw+alu %s fmulw+store %s\n' \

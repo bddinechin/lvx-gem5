@@ -139,8 +139,14 @@ class Scoreboard : public Named
      *  numResults counts.  If mark_unpredictable is true, the inst's
      *  destination registers are marked as being unpredictable without
      *  an estimated retire time */
+    /** Mark this instruction's destinations busy until retire_time, or
+     *  until retire_time minus that destination's entry in
+     *  dest_relative_latencies where the ISA supplies one (see
+     *  StaticInst::destRegsRelativeLats): an instruction that writes several
+     *  results need not write them all at once. */
     void markupInstDests(MinorDynInstPtr inst, Cycles retire_time,
-        ThreadContext *thread_context, bool mark_unpredictable);
+        ThreadContext *thread_context, bool mark_unpredictable,
+        const std::vector<Cycles> *dest_relative_latencies = nullptr);
 
     /** Clear down the dependencies for this instruction.  clear_unpredictable
      *  must match mark_unpredictable for the same inst. */

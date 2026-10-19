@@ -152,6 +152,25 @@ class StaticInst : public RefCounted, public StaticInstFlags
     {
         return nullptr;
     }
+
+    /// Per-destination relative latency: how many cycles *before* this
+    /// instruction's own retire time each destination register actually
+    /// becomes readable. Indexed like destRegIdx(); as long as
+    /// numDestRegs() or null.
+    ///
+    /// The mirror of srcRegsRelativeLats, and it exists for the same kind of
+    /// ISA. A VLIW bundle modelled as one instruction retires as a unit, at
+    /// the latency of its slowest operation, but each operation in it writes
+    /// its own result at its own stage: a 1-cycle copy sharing a bundle with
+    /// a 3-cycle load is readable after 1, not after 3. Without this the
+    /// model delays every cheap result in a bundle to the dearest one in it,
+    /// and does so in proportion to how densely the bundle is packed — which
+    /// penalises exactly the code a VLIW scheduler is trying to produce.
+    virtual const std::vector<Cycles> *
+    destRegsRelativeLats() const
+    {
+        return nullptr;
+    }
     //@}
 
     /// @name Flag accessors.

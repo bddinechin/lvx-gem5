@@ -97,7 +97,8 @@ Scoreboard::findIndex(const RegId& reg, Index &scoreboard_index)
 
 void
 Scoreboard::markupInstDests(MinorDynInstPtr inst, Cycles retire_time,
-    ThreadContext *thread_context, bool mark_unpredictable)
+    ThreadContext *thread_context, bool mark_unpredictable,
+    const std::vector<Cycles> *dest_relative_latencies)
 {
     if (inst->isFault())
         return;
@@ -121,7 +122,12 @@ Scoreboard::markupInstDests(MinorDynInstPtr inst, Cycles retire_time,
             inst->flatDestRegIdx[dest_index] = reg;
 
             numResults[index]++;
-            returnCycle[index] = retire_time;
+            /* This destination may be written earlier than the instruction
+             * as a whole retires. */
+            Cycles relative_latency = (dest_relative_latencies &&
+                dest_index < dest_relative_latencies->size())
+                    ? (*dest_relative_latencies)[dest_index] : Cycles(0);
+            returnCycle[index] = retire_time - relative_latency;
             /* We should be able to rely on only being given accending
              *  execSeqNums, but sanity check */
             if (inst->id.execSeqNum > writingInst[index]) {

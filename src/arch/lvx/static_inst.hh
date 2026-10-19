@@ -74,6 +74,14 @@ class LvxStaticInst : public StaticInst
     // bundle is read later than RR, so the common bundle costs nothing.
     std::vector<Cycles> srcRelLats;
 
+    // Per-destination relative latency, parallel to destRegIdxArr: see
+    // StaticInst::destRegsRelativeLats. A bundle retires at its slowest
+    // instruction's latency, but each result is written at its own stage, so
+    // this is how much earlier than the bundle each destination is readable.
+    // Empty unless the bundle mixes latencies, so a uniform bundle costs
+    // nothing.
+    std::vector<Cycles> destRelLats;
+
     // Populate the src/dest register lists from the generated lvx_reg_deps table.
     void setUpRegs();
 
@@ -84,6 +92,12 @@ class LvxStaticInst : public StaticInst
     srcRegsRelativeLats() const override
     {
         return srcRelLats.empty() ? nullptr : &srcRelLats;
+    }
+
+    const std::vector<Cycles> *
+    destRegsRelativeLats() const override
+    {
+        return destRelLats.empty() ? nullptr : &destRelLats;
     }
 
     Fault execute(ExecContext *xc,

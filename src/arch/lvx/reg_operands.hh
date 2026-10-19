@@ -86,6 +86,16 @@ struct LvxRegDeps
     // Processor@minTaken: 0 for goto/call/ret, 1 for cb/ccb/igoto/icall.
     // 0 for everything that does not transfer.
     unsigned char        xfer;
+    // What this opcode does to memory (LVX_MEM_* in reg_operands.inc), read
+    // out of the emitted behaviour bodies' MEM_* helper calls. The port needs
+    // it at *decode*: serving a load through MinorCPU's load/store queue
+    // instead of functionally inside execute() means marking the bundle
+    // isMemRef() and finding the sub-instruction that holds the access, both
+    // before any behaviour has run. Nothing reads it yet -- the shim's
+    // Behavior_MEM_load is still a synchronous SETranslatingPortProxy read,
+    // so no memory request reaches the cache hierarchy and the D-cache's
+    // counters are all zero.
+    unsigned char        mem;
 };
 
 // Defined in generated/behavior.c (compiled as C). Indexed by the Opcode enum.

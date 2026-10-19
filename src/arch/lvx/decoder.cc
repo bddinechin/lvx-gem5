@@ -7,6 +7,7 @@
 
 #include "arch/lvx/decoder.hh"
 
+#include "arch/lvx/pcstate.hh"
 #include "arch/lvx/static_inst.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
@@ -81,6 +82,26 @@ Decoder::decode(PCStateBase &pc)
         return nullptr;
     instDone = false;
     StaticInstPtr si = decode(emi, pc.instAddr());
+
+    // A bundle's length is known only here, and the PC state's npc was
+    // computed from the *previous* bundle's -- fetch has no other way to
+    // know how far to step.  gem5 calls this out at the call site ("the
+    // decoder can update the given PC.  Remember not to assign it until
+    // *after* calling decode"), and this decoder did not, so on the fetch
+    // path npc was wrong whenever consecutive bundles differed in length.
+    //
+    // It cost far more than a wrong fetch address.  Fetch2 copies this state
+    // into the instruction, Execute compares it against the PC the bundle
+    // actually produced, and a disagreement is a taken branch: so every
+    // change of bundle length squashed the pipeline.  A loop alternating a
+    // two-syllable bundle with a one-syllable bundle took a squash per
+    // bundle -- 20005 instruction streams over 1000 trips -- and measured
+    // 147 cycles a trip where it should take 25.  Uniform-length code, which
+    // is all the hand-written tests were, never showed it.
+    PCState &lpc = pc.as<PCState>();
+    lpc.bundleSize(si->size());
+    lpc.npc(lpc.instAddr() + si->size());
+
     emi = ExtMachInst(); // start a fresh bundle
     return si;
 }

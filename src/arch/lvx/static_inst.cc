@@ -4,6 +4,7 @@
  */
 #include "arch/lvx/static_inst.hh"
 
+#include <algorithm>
 #include <sstream>
 
 #include <type_traits>
@@ -339,12 +340,27 @@ LvxStaticInst::setUpRegs()
     // MinorCPU expects no LSQ request (the shim serves loads/stores atomically
     // inside execute()). The per-opcode lat already distinguishes e.g. FP16
     // (E3) from FP32/FP64 (E4) FADD/FMUL/FFMA, so no per-class label is needed.
-    _opClass = lat >= LVX_STAGE_SR - LVX_STAGE_RR ? IntDivOp
-             : lat >= LVX_STAGE_SF - LVX_STAGE_RR ? FloatDivOp
-             : lat >= LVX_STAGE_E4 - LVX_STAGE_RR ? FloatMultOp
-             : lat >= LVX_STAGE_E3 - LVX_STAGE_RR ? FloatAddOp
-             : lat >= LVX_STAGE_E2 - LVX_STAGE_RR ? IntMultOp
-             :                                       IntAluOp;
+    // One bucket per distinct write stage, highest first. There must be a
+    // bucket for every latency the description produces: a lat with no exact
+    // bucket silently falls into a lower one and is modelled too cheap, which
+    // is what happened to FD (13) until 2026-10-19 -- the FDIV*/FSQRT* family
+    // landed in SF's and ran two cycles short. effLat below is what the FU
+    // will actually charge, so the two can no longer disagree unnoticed.
+    unsigned effLat;
+    if      (lat >= LVX_STAGE_SR - LVX_STAGE_RR)
+        { _opClass = IntDivOp;     effLat = LVX_STAGE_SR - LVX_STAGE_RR; }
+    else if (lat >= LVX_STAGE_FD - LVX_STAGE_RR)
+        { _opClass = FloatSqrtOp;  effLat = LVX_STAGE_FD - LVX_STAGE_RR; }
+    else if (lat >= LVX_STAGE_SF - LVX_STAGE_RR)
+        { _opClass = FloatDivOp;   effLat = LVX_STAGE_SF - LVX_STAGE_RR; }
+    else if (lat >= LVX_STAGE_E4 - LVX_STAGE_RR)
+        { _opClass = FloatMultOp;  effLat = LVX_STAGE_E4 - LVX_STAGE_RR; }
+    else if (lat >= LVX_STAGE_E3 - LVX_STAGE_RR)
+        { _opClass = FloatAddOp;   effLat = LVX_STAGE_E3 - LVX_STAGE_RR; }
+    else if (lat >= LVX_STAGE_E2 - LVX_STAGE_RR)
+        { _opClass = IntMultOp;    effLat = LVX_STAGE_E2 - LVX_STAGE_RR; }
+    else
+        { _opClass = IntAluOp;     effLat = LVX_STAGE_E1 - LVX_STAGE_RR; }
 
     // Publish the relaxations only if there are any, so an ordinary bundle
     // keeps the default (null) path and allocates nothing.
@@ -362,13 +378,17 @@ LvxStaticInst::setUpRegs()
     // Likewise for the destinations, as how much *earlier* than the bundle
     // each is readable. A bundle whose instructions all have the same
     // latency -- which is most of them -- publishes nothing.
+    // Measured against effLat, not against lat: the retire time the scoreboard
+    // is given comes from the FU, so a reduction computed from anything else
+    // would move every result in the bundle by their difference.
     bool anyEarly = false;
     for (int i = 0; i < _numDestRegs; ++i)
-        if (destLat[i] < lat) anyEarly = true;
+        if (destLat[i] < effLat) anyEarly = true;
     if (anyEarly) {
         destRelLats.resize(_numDestRegs);
         for (int i = 0; i < _numDestRegs; ++i)
-            destRelLats[i] = Cycles(lat - destLat[i]);
+            destRelLats[i] = Cycles(effLat -
+                                    std::min<unsigned>(destLat[i], effLat));
     } else {
         destRelLats.clear();
     }

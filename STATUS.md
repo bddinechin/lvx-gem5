@@ -102,6 +102,17 @@ instead of a stub. Implemented:
 
 ### Timing (`LVX_CPU=minor`)
 
+**FP divide and square root cost 13 cycles**, not 11, since 2026-10-19. The
+functional units are latency buckets, one per pipeline write stage, and there
+was none for FD — so the nine `FDIV*`/`FSQRT*` opcodes, which write there,
+fell into SF's bucket and ran two cycles short. A latency with no exact bucket
+is charged a lower one silently, the routing having no way to say that none
+fits, so the per-destination reduction is now measured against the bucket the
+FU will actually charge rather than against the bundle's own maximum: the two
+can no longer disagree unnoticed. Measured on self-chained `fsqrtw`/`fdivw`:
+11.01 → 13.01 cycles a step, with `faddw` unchanged at 4.01; PolyBench's
+`correlation`, which has sqrt on a hot path, moves 279849 → 280664.
+
 **MinorCPU could deadlock in a taken-branch bubble** until 2026-10-19, and the
 shape is worth knowing because no micro test could reach it. Issue is held off
 until the bubble's release cycle, but that stall was not itself a reason to

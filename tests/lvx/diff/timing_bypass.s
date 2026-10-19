@@ -13,6 +13,15 @@
 	#
 	#   (plain)              mulw into itself.  Read.1, Written.3: a chain of
 	#                        E2 - RR cycles a step.  The control.
+	#   --defsym FDIV=1      fsqrtw into itself.  It writes at FD, a stage of
+	#                        its own, and there must be a functional-unit
+	#                        bucket for every distinct write stage: there was
+	#                        none for FD until 2026-10-19, so the nine
+	#                        FDIV*/FSQRT* opcodes fell into SF's and were
+	#                        modelled at 11 instead of 13.  A latency with no
+	#                        exact bucket is charged a lower one silently,
+	#                        which is why this is asserted against the stage
+	#                        enum rather than against a number.
 	#   --defsym MAC=1       maddw into itself.  Read.2, Written.3: the
 	#                        accumulator is read a stage later, so the chain
 	#                        is ONE cycle a step -- half the control, which is
@@ -46,6 +55,10 @@ _start:
 	;;
 .Lloop:
 	.rept UNROLL
+.ifdef FDIV
+	fsqrtw $r3 = $r3	# writes at FD; the chain is one FD latency a step
+	;;
+.else
 .ifdef FMUL
 	fmulw $r5 = $r6, $r7
 	;;
@@ -62,6 +75,7 @@ _start:
 	mulw $r2 = $r2, $r3	# control: read at RR, written at E2
 .endif
 	;;
+.endif
 .endif
 	.endr
 	addd $r1 = $r1, -1

@@ -19,6 +19,7 @@ from m5.objects.lvx_stages import (
     LVX_STAGE_E2,
     LVX_STAGE_E3,
     LVX_STAGE_E4,
+    LVX_STAGE_FD,
     LVX_STAGE_RR,
     LVX_STAGE_SF,
     LVX_STAGE_SR,
@@ -48,6 +49,14 @@ class LvxTimingSimpleCPU(BaseTimingSimpleCPU, LvxCPU):
     mmu = LvxMMU()
 
 
+# Functional units as latency buckets, one per pipeline write stage. There has
+# to be one per *distinct* write stage, and FD was missing until 2026-10-19:
+# the nine FDIV*/FSQRT* opcodes write at FD, a latency of 13, and with no
+# bucket for it they fell into the next one down and were modelled at 11. Two
+# cycles short on every floating-point divide and square root, and the kind of
+# gap that closes silently -- the routing below has no way to say "no bucket
+# fits", it just picks a lower one.
+#
 # Functional units as latency buckets, one per pipeline write stage: a result
 # written at stage S has dependence latency S - LVX_STAGE_RR (lvx_stages.h), and
 # LvxStaticInst routes each bundle to the FU whose opLat matches its (max) result
@@ -73,6 +82,7 @@ class LvxFUPool(MinorFUPool):
         _lvxFU("LvxFU_E3", "FloatAdd",  LVX_STAGE_E3),
         _lvxFU("LvxFU_E4", "FloatMult", LVX_STAGE_E4),
         _lvxFU("LvxFU_SF", "FloatDiv",  LVX_STAGE_SF),
+        _lvxFU("LvxFU_FD", "FloatSqrt", LVX_STAGE_FD),
         _lvxFU("LvxFU_SR", "IntDiv",    LVX_STAGE_SR),
     ]
 

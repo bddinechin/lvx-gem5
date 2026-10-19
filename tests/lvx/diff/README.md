@@ -78,6 +78,23 @@ compiles. Beware of proving otherwise with a test GCC constant-folds away: a
 256-bit `v8si` add of literals compiles to a single `maked $r0 = 18`, which
 exercises nothing.
 
+## Running all of it
+
+`./run_checks.sh` runs the matrix and every `check_*.sh` beside it, and exits
+non-zero if any of them fails; `make check-iss` from `lvx-csw/` is the same
+thing. Until 2026-10-19 nothing ran any of this -- there is no CI in this tree
+and no make target reached these scripts -- which is how three ISS timing bugs
+reached the tree in one week with twenty-odd assertions in them passing over
+it, two of them found by a benchmark run elsewhere. A suite nobody runs is
+documentation.
+
+It discovers the checks by glob rather than from a list, so a new one is
+covered without editing anything, and it names the ISS binary explicitly
+rather than letting each script default to `build/LVX/gem5.opt`, which holds
+whichever core was built last. `check_timing.sh` and `check_kernel.sh` run
+against both cores, those being the two whose answers depend on which core
+built the binary. About two minutes, or ~35 s with `SKIP_DIFF=1`.
+
 ## Standalone checks beside the matrix
 
 Some behaviour has no x86 equivalent to diff against, so it is checked directly by

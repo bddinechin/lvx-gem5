@@ -353,16 +353,73 @@
 > much more per-instruction work, plus a wider functional-unit scan; it
 > measures 73k inst/s. There is no like-for-like pre-split `minor` figure.
 >
-> ### What is left
+> ### Then the LSQ, done 2026-10-20
 >
-> Routing memory through the LSQ, which is what the split was for. Two things
-> are now known about it. `MinorDynInst::inLSQ` is a single bool and
-> `findResponse(inst)` is singular, so it is one access per *instruction* --
-> which a micro-op is, so the two LSU slots are no longer a problem. And the
-> `fatal_if` barring memory references under `nonBlockingFuncUnits` is
-> over-broad: only the *early* mem-issue path reaches for `fu->front()`, and
-> that is `executeAllowEarlyMemoryIssue`, a separate parameter. The load
-> shadow and the LSQ can coexist.
+> A load or store syllable is an `isMemRef()` of its own, so MinorCPU's queue
+> carries the access and the data cache sees it: 25,537 accesses and 413
+> misses on the seidel kernel, where every counter used to read zero whatever
+> the program did. `check_dcache.sh` pins it as the difference between two
+> runs of one fixture, since zero accesses and absent plumbing look identical
+> in a counter.
+>
+> **Two passes over the execute phase.** The request goes out at `initiateAcc`
+> and the data arrives at `completeAcc`, and MDS emits one function per phase
+> with no seam inside it, so the phase runs twice: `MemIssue` computes the
+> address and hands the request over (the helper returns zero and whatever the
+> body computes from it is discarded), `MemComplete` returns the response and
+> that pass is the one committed. The bundle-level work waits for
+> `completeMicro`, because `Execute::executeMemRefInst` restores the thread's
+> PC after `initiateAcc`.
+>
+> That is sound only while such a body touches nothing but its operand slots
+> and the memory helper, so **the generator decides, not the port**:
+> `lvx_reg_deps[].lsq` is set for an access whose execute phase has no storage
+> write, trap or branch hint, and which makes exactly one access -- the queue
+> being one per instruction (`MinorDynInst::inLSQ` is a single bool), so a
+> second would be silently dropped. 75 of 75 on lvx_v1, 91 of 215 on lvx_v2:
+> the excluded 124 are the extension accesses (`XLO`, `XSO`, `XPL*`), which
+> also update `$cs.XMF` and the XVR file. Worth noting that a hand grep for
+> bodies calling `MEM_load`/`MEM_store` found none with side effects and was
+> wrong -- the generator's own classification found 124, because an opcode's
+> memory class is the union over its three phases while the side effect is in
+> one of them.
+>
+> A suppressed syllable (a GUARD evaluated false) issues nothing and says so
+> through the memory-access predicate, which rides on the `MinorDynInst`:
+> `ExecContext`'s constructor loads it from there and its destructor stores it
+> back, so it survives the gap between the two passes. Minor then pushes a
+> failed request and calls `completeAcc` with a null packet, which is where
+> the bundle's remaining work gets done.
+>
+> LVX's byte masks map straight onto gem5's `byte_enable`, so a
+> `MASKM`-prefixed access is one request with its gaps not enabled, rather
+> than the several the functional path splits it into.
+>
+> **The `fatal_if` barring this under `nonBlockingFuncUnits` was over-broad**
+> -- mine, from the load-shadow work. Only the *early* mem-issue path reaches
+> for `fu->front()`, and that is `executeAllowEarlyMemoryIssue`, a separate
+> parameter; normal in-order commit of a memory reference never consults the
+> FU. So the load shadow and the queue coexist, with early issue off.
+>
+> ### The decision this leaves open
+>
+> `executeMemRefsAssumeFixedLatency` is on, so the ISA still states the
+> dependence latency: `ld` 3 cycles, `ld.u` 15, rather than dependents waiting
+> for the response. In-order commit still waits for it, so the hierarchy is a
+> floor and not a replacement -- but the cost is visible, and it is the whole
+> of the choice: the kernel's 413 misses carry 13,085 cycles of miss latency
+> in the model and move the total by 18, because nothing waits on them.
+>
+> The description's two latencies describe a two-level hierarchy -- an L1 at
+> about 3 cycles, and a next level at about 15 that `ld.u` reaches by
+> bypassing the L1. The configuration has an L1 and then DRAM, nothing
+> between, and DRAM measures about 31 cycles here. So letting the hierarchy
+> decide (the parameter off, plus an uncacheable request for the `.u`
+> variants) would price `ld.u` at 31 where the architecture says 15 -- unless
+> an L2 with a ~12-cycle response is added, at which point the architectural
+> number falls out of the configuration rather than being asserted beside it.
+> That is where this should end up, and what it is really saying is what the
+> machine's memory hierarchy is.
 
 ## The problem, precisely
 

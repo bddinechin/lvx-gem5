@@ -19,6 +19,7 @@ namespace gem5
 {
 
 class ThreadContext;
+class ExecContext;
 
 namespace LvxISA
 {
@@ -134,9 +135,42 @@ struct BundleWriteLog
     void reset() { count = 0; }
 };
 
+// How the memory helpers behave on this pass over a syllable's execute phase.
+//
+// A load or a store served through MinorCPU's load/store queue cannot be one
+// pass: the request goes out at initiateAcc and the data comes back at
+// completeAcc, an unknown number of cycles later. MDS emits one function per
+// phase and there is no seam inside it to stop at, so the execute phase runs
+// twice -- once to compute the address and issue, once to consume the
+// response. That is sound because a load or store body touches nothing but
+// its operand slots and the memory helper: no storage write, no trap, no
+// branch hint. BE/GEM5's reg-operands.pl checks that and says so if it ever
+// stops being true.
+enum MemPhase
+{
+    // Serve the access immediately, through the SE port proxy. Every
+    // non-memory syllable, and the accesses not routed through the queue:
+    // the atomics, and every access under the functional CPU models.
+    MemFunctional,
+    // Compute the address and hand the request to the queue; the helper
+    // returns zero and whatever the body computes from it is discarded.
+    MemIssue,
+    // The response has arrived in `memData'; the helper returns it and this
+    // pass is the one whose results are committed.
+    MemComplete,
+};
+
 struct BehaviorContext
 {
     ThreadContext *tc = nullptr;
+
+    // Only set for the two load/store-queue passes, which need the
+    // ExecContext's initiateMemRead/writeMem rather than a port proxy.
+    ExecContext *xc = nullptr;
+    MemPhase memPhase = MemFunctional;
+    // What the queue returned, byte i of the access at byte i of the value --
+    // the same placement the functional path uses.
+    int256_t memData = int256_zero;
 
     // Shared with the other syllables of the bundle; owned by the caller.
     BundlePredication *predication = nullptr;
@@ -167,6 +201,12 @@ struct BehaviorContext
         instPC = inst_pc;
         nextPC = fall_through;
         npcWritten = false;
+        // The memory pass is set per pass, after this; a bundle's snapshot
+        // resets it to the functional default so a stale MemComplete cannot
+        // make the next bundle's load return the last one's data.
+        xc = nullptr;
+        memPhase = MemFunctional;
+        memData = int256_zero;
         for (auto &s : operands) { s.value = int256_zero; s.flags = AccessNone; }
     }
 };

@@ -123,6 +123,16 @@ struct LvxRegDeps
     // bundle's last micro-op, because a taken branch squashes everything
     // younger and a micro-op of the same bundle is younger than the branch.
     unsigned char        ctl;
+    // Whether this access may be served through MinorCPU's load/store queue,
+    // which is what makes it visible to the data cache. The port runs a split
+    // access's execute phase twice -- once to issue, once to consume the
+    // response -- so only an access whose execute phase touches nothing but
+    // its operand slots qualifies: a plain load or store does, lvx_v2's
+    // extension accesses (XLO, XSO, XPL*) do not, since they also update
+    // $cs.XMF and the XVR file, and the atomics do not, their read and write
+    // being one indivisible access. 75 of 75 on lvx_v1, 91 of 215 on lvx_v2;
+    // the rest keep the functional path, correct but invisible to the cache.
+    unsigned char        lsq;
 };
 
 // Defined in generated/behavior.c (compiled as C). Indexed by the Opcode enum.

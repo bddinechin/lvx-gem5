@@ -464,6 +464,19 @@ class BaseMinorCPU(BaseCPU):
         " otherwise let two issue together.",
     )
 
+    executeMemRefsAssumeFixedLatency = Param.Bool(
+        False,
+        "Mark a memory reference's destinations at its functional unit's"
+        " latency, as for any other instruction, instead of as unpredictable."
+        " For an ISA whose description states what a load costs -- a VLIW with"
+        " an architectural load latency -- where that number should remain the"
+        " dependence latency even though the access now goes through the LSQ."
+        " The access can still take longer than the unit says, since in-order"
+        " commit waits for the response as well; what this suppresses is"
+        " dependent instructions waiting for the response when the ISA says"
+        " they need not.",
+    )
+
     executeAllowEarlyMemoryIssue = Param.Bool(
         True,
         "Allow mem refs to be issued to the LSQ before reaching the head of"

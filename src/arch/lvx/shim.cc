@@ -34,6 +34,8 @@
 #include "arch/lvx/shim.h"
 #include "base/logging.hh"
 #include "cpu/base.hh"
+#include "cpu/exec_context.hh"
+#include "mem/request.hh"
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
 #include "debug/LvxDecode.hh"
@@ -59,6 +61,26 @@ static inline void
 writeGpr(ThreadContext *tc, int id, uint64_t val)
 {
     tc->setReg(intRegClass[id], val);
+}
+
+// The request shape a byte mask asks for: `size' bytes from the access
+// address, and which of them are live.
+//
+// LVX's mask is per byte of the access, bit i for byte i, and it need not be
+// contiguous -- the MASKM prefix makes a lane-masked access, which is where
+// the gaps come from. gem5's byte_enable says exactly that, so the whole mask
+// goes out as one request: the size is the mask's extent (highest live byte
+// plus one) and the gaps are simply not enabled.
+static unsigned
+lvxRequestShape(uint64_t mask, std::vector<bool> &byteEnable)
+{
+    if (mask == 0)
+        return 0;
+    const unsigned size = 64 - __builtin_clzll(mask);
+    byteEnable.resize(size);
+    for (unsigned i = 0; i < size; i++)
+        byteEnable[i] = ((mask >> i) & 1) != 0;
+    return size;
 }
 
 // Commit one syllable's write of GPR ID within a bundle, under the rule of
@@ -1261,8 +1283,23 @@ Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
     Addr address = (Addr)addr;
     uint64_t mask = byteMask.words[0];
     int256_t result = int256_zero;
-    // Functional SE-mode read (AtomicSimpleCPU). TODO: route through the CPU
-    // memory system (ExecContext::readMem) for timing models.
+
+    // Served through MinorCPU's load/store queue, in two passes: see
+    // MemPhase (shim.hh). This is the only path on which the data cache is
+    // accessed at all -- the proxy read below is functional and reaches
+    // memory without the hierarchy seeing a request.
+    if (ctx->memPhase == MemComplete)
+        return ctx->memData;
+    if (ctx->memPhase == MemIssue) {
+        std::vector<bool> byteEnable;
+        unsigned size = lvxRequestShape(mask, byteEnable);
+        if (size)
+            ctx->xc->initiateMemRead(address, size, Request::Flags(),
+                                     byteEnable);
+        return result;          // discarded; the MemComplete pass is the one
+    }
+
+    // Functional SE-mode read (the simple CPUs, and the atomics).
     SETranslatingPortProxy proxy(ctx->tc);
     if (lvxLowRun(mask)) {
         proxy.readBlob(address, result.bytes, __builtin_popcountll(mask));
@@ -1283,6 +1320,21 @@ Behavior_MEM_store(void *self, uint64_t addr, int256_t byteMask,
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
     uint64_t mask = byteMask.words[0];
+
+    // Through the queue, as for a load. A store's MemComplete pass has
+    // nothing to do: writeMem took the data at MemIssue, and what comes back
+    // is the acknowledgement.
+    if (ctx->memPhase == MemComplete)
+        return;
+    if (ctx->memPhase == MemIssue) {
+        std::vector<bool> byteEnable;
+        unsigned size = lvxRequestShape(mask, byteEnable);
+        if (size)
+            ctx->xc->writeMem(value.bytes, size, address, Request::Flags(),
+                              nullptr, byteEnable);
+        return;
+    }
+
     SETranslatingPortProxy proxy(ctx->tc);
     if (lvxLowRun(mask)) {
         proxy.writeBlob(address, value.bytes, __builtin_popcountll(mask));

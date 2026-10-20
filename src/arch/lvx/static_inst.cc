@@ -5,6 +5,7 @@
 #include "arch/lvx/static_inst.hh"
 
 #include <algorithm>
+#include <cstring>
 #include <sstream>
 
 #include <type_traits>
@@ -511,14 +512,25 @@ LvxStaticInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
 // depend on the timing model at all -- gem5 executes at *commit* and commits
 // in order, so every older instruction has already written its registers
 // before the head micro-op snapshots them, whatever the scoreboard said.
-Fault
-LvxStaticInst::executeMicro(ExecContext *xc, trace::InstRecord *traceData,
-                            unsigned mi) const
+// Take the bundle's operand snapshot if this is the head micro-op, check that
+// the snapshot in hand is this bundle's, and say whether a GUARD in the bundle
+// suppressed this syllable.
+//
+// The snapshot is the whole of the bundle's parallel read semantics: it runs
+// *every* syllable's fetch phase, which is every register read the bundle
+// makes, so a register written by one syllable is invisible to the next.
+//
+// Why a snapshot and not deferred writes: both work, and this one leaves the
+// behaviour code exactly as it was. Note that functional correctness does not
+// depend on the timing model at all -- gem5 executes at *commit* and commits
+// in order, so every older instruction has already written its registers
+// before the head micro-op snapshots them, whatever the scoreboard said.
+bool
+LvxStaticInst::prepareMicro(ExecContext *xc, unsigned mi) const
 {
     ThreadContext *tc = xc->tcBase();
     BundleExec &be = static_cast<ISA *>(tc->getIsaPtr())->bundleExec();
     const Addr base = xc->pcState().instAddr();
-    const unsigned i = microOrder[mi];
 
     if (mi == 0) {
         const Addr fallThrough = base + bundleBytes;
@@ -555,13 +567,95 @@ LvxStaticInst::executeMicro(ExecContext *xc, trace::InstRecord *traceData,
     // named that syllable's unit (either GUARD: the bundle keeps the union).
     // Every GUARD has run by now -- buildMicroOrder puts the non-transfer BCU
     // slots first, and a BCU slot is itself never guarded.
-    const int bit = (int)subInsts[i].exu - (int)EXU_ALU0;
-    const bool suppressed = bit >= 0 && bit < 8 &&
+    const int bit = (int)subInsts[microOrder[mi]].exu - (int)EXU_ALU0;
+    return bit >= 0 && bit < 8 &&
         ((be.predication.suppressMask >> bit) & 1u) != 0;
+}
+
+// Run micro-op `mi' of this bundle: its syllable's execute and commit phases
+// out of the snapshot, then the bundle-level work if it is the last.
+Fault
+LvxStaticInst::executeMicro(ExecContext *xc, trace::InstRecord *traceData,
+                            unsigned mi) const
+{
+    BundleExec &be =
+        static_cast<ISA *>(xc->tcBase()->getIsaPtr())->bundleExec();
+    const bool suppressed = prepareMicro(xc, mi);
+    const unsigned i = microOrder[mi];
 
     if (!suppressed) {
         runPhase(be.ctx[i], subInsts[i].opcode, BehaviorExecute,
                  subInsts[i].decoded);
+        runPhase(be.ctx[i], subInsts[i].opcode, BehaviorCommit,
+                 subInsts[i].decoded);
+    }
+
+    if (mi + 1 == numSubInsts)
+        finishBundle(xc, be);
+
+    return NoFault;
+}
+
+// First half of a micro-op served through the load/store queue: compute the
+// address and issue the request. Nothing is committed here, and nothing may
+// be: Execute::executeMemRefInst restores the thread's PC afterwards, so the
+// bundle-level work has to wait for completeMicro.
+//
+// A suppressed syllable issues nothing and says so through the memory-access
+// predicate, which rides on the MinorDynInst (ExecContext's constructor loads
+// it from there and its destructor stores it back). Minor then pushes a failed
+// request and calls completeAcc with a null packet, which is where the
+// bundle's remaining work gets done.
+Fault
+LvxStaticInst::initiateMicro(ExecContext *xc, trace::InstRecord *traceData,
+                             unsigned mi) const
+{
+    BundleExec &be =
+        static_cast<ISA *>(xc->tcBase()->getIsaPtr())->bundleExec();
+    const bool suppressed = prepareMicro(xc, mi);
+    const unsigned i = microOrder[mi];
+
+    if (suppressed) {
+        xc->setMemAccPredicate(false);
+        return NoFault;
+    }
+
+    be.ctx[i].xc = xc;
+    be.ctx[i].memPhase = MemIssue;
+    runPhase(be.ctx[i], subInsts[i].opcode, BehaviorExecute,
+             subInsts[i].decoded);
+    be.ctx[i].memPhase = MemFunctional;
+    return NoFault;
+}
+
+// Second half: the response has arrived, so re-run the execute phase with the
+// data in hand and commit for real. The two passes differ only in what the
+// memory helper returns -- a load or store body touches nothing else (see
+// MemPhase, and the check in BE/GEM5's reg-operands.pl).
+Fault
+LvxStaticInst::completeMicro(PacketPtr pkt, ExecContext *xc,
+                             trace::InstRecord *traceData, unsigned mi) const
+{
+    BundleExec &be =
+        static_cast<ISA *>(xc->tcBase()->getIsaPtr())->bundleExec();
+    const unsigned i = microOrder[mi];
+    // prepareMicro is not called again: the snapshot is the one initiateMicro
+    // took, and re-running the head's fetch phase here would read registers
+    // that older syllables of this same bundle have since committed.
+    const bool suppressed = !xc->readMemAccPredicate();
+
+    if (!suppressed) {
+        if (pkt && pkt->getSize() > 0) {
+            const unsigned n = std::min<unsigned>(pkt->getSize(),
+                                                  sizeof(be.ctx[i].memData));
+            std::memcpy(be.ctx[i].memData.bytes,
+                        pkt->getConstPtr<uint8_t>(), n);
+        }
+        be.ctx[i].xc = xc;
+        be.ctx[i].memPhase = MemComplete;
+        runPhase(be.ctx[i], subInsts[i].opcode, BehaviorExecute,
+                 subInsts[i].decoded);
+        be.ctx[i].memPhase = MemFunctional;
         runPhase(be.ctx[i], subInsts[i].opcode, BehaviorCommit,
                  subInsts[i].decoded);
     }
@@ -667,6 +761,18 @@ LvxMicroInst::LvxMicroInst(const char *mnem, StaticInstPtr macroop,
     // why it is ordered last. The taken-branch penalty and the squash both
     // key off this.
     flags[IsControl] = transfersControl(si.opcode);
+    // Does this access go through the load/store queue? The generator
+    // decides, because the answer needs more than the memory class: the port
+    // runs a split access's execute phase twice, so only one that touches
+    // nothing else qualifies. See lvx_reg_deps[].lsq. Everything excluded --
+    // the atomics, lvx_v2's extension accesses -- keeps the functional path,
+    // as does every access under the simple CPU models, which have no queue.
+    const bool lsq = si.opcode < (unsigned)Opcode__NUM
+                   && lvx_reg_deps[si.opcode].lsq;
+    const unsigned mem = si.opcode < (unsigned)Opcode__NUM
+                       ? lvx_reg_deps[si.opcode].mem : LVX_MEM_NONE;
+    flags[IsLoad]  = lsq && (mem == LVX_MEM_LOAD);
+    flags[IsStore] = lsq && (mem == LVX_MEM_STORE);
 
     RegLists lists;
     // The head carries the *bundle's* sources, so a bundle cannot stall
@@ -736,6 +842,21 @@ LvxMicroInst::execute(ExecContext *xc, trace::InstRecord *traceData) const
 {
     return static_cast<LvxStaticInst *>(macro.get())
         ->executeMicro(xc, traceData, index);
+}
+
+Fault
+LvxMicroInst::initiateAcc(ExecContext *xc, trace::InstRecord *traceData) const
+{
+    return static_cast<LvxStaticInst *>(macro.get())
+        ->initiateMicro(xc, traceData, index);
+}
+
+Fault
+LvxMicroInst::completeAcc(PacketPtr pkt, ExecContext *xc,
+                          trace::InstRecord *traceData) const
+{
+    return static_cast<LvxStaticInst *>(macro.get())
+        ->completeMicro(pkt, xc, traceData, index);
 }
 
 // All but the last micro-op step the micro-PC; the last ends the bundle and

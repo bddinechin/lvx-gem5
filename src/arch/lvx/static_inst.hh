@@ -22,6 +22,7 @@
 
 #include "arch/lvx/shim.hh"
 #include "arch/lvx/types.hh"
+#include "mem/packet.hh"
 #include "cpu/reg_class.hh"
 #include "cpu/static_inst.hh"
 
@@ -112,6 +113,16 @@ class LvxMicroInst : public StaticInst
     Fault execute(ExecContext *xc,
                   trace::InstRecord *traceData) const override;
 
+    // A syllable that loads or stores is an isMemRef() of its own, so the
+    // access goes through MinorCPU's load/store queue and the data cache
+    // sees it. The queue is one access per instruction -- and a micro-op is
+    // one -- which is why the bundle had to be split before this was
+    // possible: LVX has two LSU slots.
+    Fault initiateAcc(ExecContext *xc,
+                      trace::InstRecord *traceData) const override;
+    Fault completeAcc(PacketPtr pkt, ExecContext *xc,
+                      trace::InstRecord *traceData) const override;
+
     void advancePC(PCStateBase &pc_state) const override;
 
     std::string generateDisassembly(
@@ -154,6 +165,21 @@ class LvxStaticInst : public StaticInst
     // is the last. LvxMicroInst::execute delegates here.
     Fault executeMicro(ExecContext *xc, trace::InstRecord *traceData,
                        unsigned mi) const;
+
+    // The two halves of a micro-op whose syllable goes through the load/store
+    // queue: issue the access, then consume the response and commit. `pkt' is
+    // null when the access did not happen (a GUARD suppressed the syllable).
+    Fault initiateMicro(ExecContext *xc, trace::InstRecord *traceData,
+                        unsigned mi) const;
+    Fault completeMicro(PacketPtr pkt, ExecContext *xc,
+                        trace::InstRecord *traceData, unsigned mi) const;
+
+  private:
+    // Shared by all three: take the bundle's operand snapshot if `mi' is the
+    // head, check it, and say whether a GUARD suppressed this syllable.
+    bool prepareMicro(ExecContext *xc, unsigned mi) const;
+
+  public:
 
     // Where execution goes next: the staged NPC, the hardware-loop back edge
     // and the redirect flags. Run by the last micro-op.

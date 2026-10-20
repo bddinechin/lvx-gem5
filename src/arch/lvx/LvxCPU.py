@@ -152,6 +152,35 @@ class LvxMinorCPU(BaseMinorCPU, LvxCPU):
     executeIssueLimit = LVX_MAX_BUNDLE_ISSUE
     executeCommitLimit = LVX_MAX_BUNDLE_ISSUE
     executeOneMacroopPerCycle = True
+    # Loads and stores go through the load/store queue, so the data cache
+    # sees them -- until 2026-10-20 the shim served every access functionally
+    # inside the behaviour and the D-cache's counters were all zero whatever
+    # the program did.
+    #
+    # The ISA still states the dependence latency: `ld' returns at CR and
+    # `ld.u' at SR, so a consumer waits 3 or 15 cycles, not whatever the
+    # memory system happens to cost. The access can still take *longer* --
+    # in-order commit waits for the response too, so a cache miss shows --
+    # which makes this a floor rather than a replacement. Lifting it, so that
+    # the hierarchy alone decides, is a modelling decision about what the
+    # description's 15 cycles means when the configuration has no L2.
+    executeMemRefsAssumeFixedLatency = True
+    # The early mem-issue path is what cannot coexist with non-blocking
+    # functional units: it reaches for the instruction at its FU's end, and a
+    # non-blocking unit has already let it go. Normal in-order commit of a
+    # memory reference never consults the FU, so switching this off is what
+    # lets the load shadow and the queue both work.
+    executeAllowEarlyMemoryIssue = False
+    # Deliberately permissive. Two LSU slots issue per cycle, and a load
+    # shadow means several accesses in flight at once -- an uncached load is
+    # 15 cycles and a bundle may issue every cycle. Sized so that the queues
+    # themselves are not the first thing a program hits; the L1's four MSHRs
+    # are the real limit on concurrency. Tightening these to a machine is a
+    # separate exercise, and wants measurements rather than guesses.
+    executeLSQRequestsQueueSize = 2
+    executeLSQTransfersQueueSize = 8
+    executeLSQStoreBufferSize = 8
+    executeMaxAccessesInMemory = 8
     # The architectural bound here is the LSU availability (2), not the issue
     # width -- but nothing is routed through the LSQ yet, so these are inert;
     # they are set permissive rather than wrong, and want the real bound when

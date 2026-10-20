@@ -314,6 +314,73 @@ no like-for-like pre-split figure to compare.
 See `docs/register-buffer-deps.md` for the micro-op order's three load-bearing
 boundaries and what the LSQ step still needs.
 
+### `gem5.fast` is available, and buys less than one might hope
+
+`VARIANT=fast ./build-cores.sh` builds `gem5-lvx<N>.fast` beside the `.opt`
+binaries. Both are -O3; `.fast` adds NDEBUG and `TRACING_ON=0`, so it drops
+the asserts and the whole DPRINTF machinery, and `.opt` adds `-g`.
+
+Measured on the seidel kernel, best of five: **1.12x under `atomic`** (807k ->
+906k inst/s) and **1.06x under `minor`** (77.0k -> 82.0k). Worth having, and
+not the answer to ISS speed -- the cost is in the generated behaviour and the
+pipeline's own data structures, both already optimised in `.opt`, not in trace
+checks. The binary is 37 MB against 780 MB, which is the other reason to want
+it.
+
+Cycle-identical to `.opt`, which is the test: 277,253 cycles from both on the
+kernel, and `run_checks.sh` passes 22/22 on `.fast` (it honours
+`GEM5_LVX1`/`GEM5_LVX2`). Note `--debug-flags` is *rejected* there rather than
+ignored -- "fatal: Tracing is not enabled" -- so `.opt` stays the one to
+develop against. Every harness defaults to the `.opt` name, so `.fast` is
+opt-in and is therefore the one that can go stale unnoticed; `build-cores.sh`
+says so at the top.
+
+### Loads and stores now go through the load/store queue
+
+Which is what the split was for. A load or store syllable is an `isMemRef()`
+of its own, so MinorCPU's queue carries the access and **the data cache sees
+it** -- on the seidel kernel, 25,537 accesses and 413 misses where every
+counter used to read zero whatever the program did. `check_dcache.sh` pins
+that, as the difference between two runs of one fixture.
+
+The access is split across two passes of the syllable's execute phase: one to
+compute the address and hand the request to the queue, one to consume the
+response. MDS emits one function per phase and there is no seam inside it, so
+the phase runs twice -- sound only while a load or store body touches nothing
+but its operand slots and the memory helper. BE/GEM5 now decides that rather
+than the port assuming it: `lvx_reg_deps[].lsq` is set for an access whose
+execute phase has no storage write, trap or branch hint **and** makes exactly
+one access, since the queue is one per instruction. 75 of 75 accesses qualify
+on lvx_v1; 91 of 215 on lvx_v2, the other 124 being the extension accesses
+(`XLO`, `XSO`, `XPL*`), which also update `$cs.XMF` and the XVR file. Those
+and the atomics keep the functional path -- correct, but invisible to the
+cache.
+
+LVX's byte masks map straight onto gem5's `byte_enable`, so a `MASKM`-prefixed
+access goes out as one request with its gaps simply not enabled, rather than
+as the several the functional path splits it into.
+
+**The ISA still states the dependence latency, deliberately.**
+`executeMemRefsAssumeFixedLatency` marks a memory reference's destinations at
+its functional unit's latency -- `ld` 3 cycles, `ld.u` 15 -- instead of making
+dependents wait for the response. The access can still take longer, since
+in-order commit waits for the response too, so the hierarchy is a floor rather
+than a replacement. The cost of that choice is visible: the kernel's 413
+misses carry 13,085 cycles of miss latency in the model and move the total by
+18, because nothing waits on them.
+
+**Which leaves a modelling decision, and it is not ours.** The description's
+two load latencies -- CR (3) for `ld`, SR (15) for `ld.u`, which bypasses the
+L1 -- describe a two-level hierarchy: an L1 at about 3 cycles and a next level
+at about 15. The ISS configuration has an L1 and then DRAM, nothing between,
+and DRAM measures about 31 cycles here. So making the hierarchy decide (
+`executeMemRefsAssumeFixedLatency = False`, plus an uncacheable request for
+the `.u` variants) would price `ld.u` at DRAM's 31 rather than the
+architectural 15 -- unless an L2 with a ~12-cycle response is added, at which
+point the architectural number falls out of the configuration instead of being
+asserted beside it. That is the principled destination and it is a statement
+about what the machine is.
+
 ### Simulation speed
 
 `Decoder::decode` used to build a fresh `LvxStaticInst` on **every fetch** --

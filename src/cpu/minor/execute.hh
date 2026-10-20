@@ -118,6 +118,11 @@ class Execute : public Named
      *  BaseMinorCPU.py's executeOneMacroopPerCycle. */
     bool oneMacroopPerCycle;
 
+    /** Mark a memory reference's destinations at the functional unit's
+     *  latency rather than as unpredictable; see BaseMinorCPU.py's
+     *  executeMemRefsAssumeFixedLatency. */
+    bool memRefsAssumeFixedLatency;
+
     /** The FU index of the non-existent costless FU for instructions
      *  which pass the MinorDynInst::isNoCostInst test */
     unsigned int noCostFUIndex;

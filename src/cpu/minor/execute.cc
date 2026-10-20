@@ -79,6 +79,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
       setTraceTimeOnIssue(params.executeSetTraceTimeOnIssue),
       allowEarlyMemIssue(params.executeAllowEarlyMemoryIssue),
       oneMacroopPerCycle(params.executeOneMacroopPerCycle),
+      memRefsAssumeFixedLatency(params.executeMemRefsAssumeFixedLatency),
       noCostFUIndex(fuDescriptions.funcUnits.size() + 1),
       takenBranchBubble(params.takenBranchBubble),
       nonBlockingFuncUnits(params.nonBlockingFuncUnits),
@@ -807,13 +808,21 @@ Execute::issue(ThreadID thread_id)
 
                         issued_mem_ref = inst->isMemRef();
 
-                        /* The LSQ path reaches for the instruction at its
-                         * FU's end (see commit's early-mem-issue block), and
-                         * a non-blocking FU has already let it go. */
-                        fatal_if(issued_mem_ref && nonBlockingFuncUnits,
-                            "%s: nonBlockingFuncUnits cannot be used with an"
-                            " ISA that issues memory references through the"
-                            " LSQ (inst: %s)", name(), *inst);
+                        /* It is the *early* mem-issue path that reaches
+                         * for the instruction at its FU's end (see commit's
+                         * early-mem-issue block), and a non-blocking FU has
+                         * already let it go. Only that path, though: normal
+                         * in-order commit of a memory reference never
+                         * consults the FU, so the two are compatible -- which
+                         * matters for an ISA that wants both a load shadow
+                         * and the LSQ. This condition was the whole of
+                         * `issued_mem_ref' until 2026-10-20 and so barred
+                         * the combination outright. */
+                        fatal_if(issued_mem_ref && nonBlockingFuncUnits &&
+                                 allowEarlyMemIssue,
+                            "%s: nonBlockingFuncUnits cannot be combined with"
+                            " executeAllowEarlyMemoryIssue (inst: %s)",
+                            name(), *inst);
 
                         QueuedInst fu_inst(inst);
 
@@ -879,7 +888,8 @@ Execute::issue(ThreadID thread_id)
                             extra_dest_retire_lat +
                             extra_assumed_lat,
                             cpu.getContext(thread_id),
-                            issued_mem_ref && extra_assumed_lat == Cycles(0),
+                            issued_mem_ref && !memRefsAssumeFixedLatency &&
+                                extra_assumed_lat == Cycles(0),
                             /* an ISA may write its several results at
                              * different stages; see destRegsRelativeLats */
                             inst->isFault() ? nullptr

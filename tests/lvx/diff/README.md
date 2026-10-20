@@ -170,6 +170,16 @@ across libc and the validation binaries, none holds two memory accesses),
 which is why it went unnoticed and is no reason for the ISS to disagree with
 the architecture.
 
+**`check_dcache.sh`** pins that the data cache sees the program's accesses at
+all. Until 2026-10-20 it saw none: every load and store was served
+functionally inside the behaviour through a port proxy, so no request reached
+the hierarchy and every counter read zero however many accesses the program
+made -- a failure no counter can report, zero accesses and no plumbing being
+indistinguishable. Asserted as the difference between two runs of the same
+fixture, one doing twice the trips, which cancels whatever the startup and
+exit paths access. A `minor'-only test: the functional CPU models have no
+load/store queue and access memory through the proxy by design.
+
 `check_timing.sh` grew two assertions and corrected six on 2026-10-19, when
 the micro-op split began enforcing one bundle per cycle. The six had been
 calibrated against a model that issued two bundles in a cycle whenever their

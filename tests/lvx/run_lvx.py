@@ -77,6 +77,28 @@ class _L1(Cache):
     tgts_per_mshr = 8
 
 
+# A second level, because the description says there is one. The `variant'
+# modifier's `.u' carries MemoryLevel=2: the load goes to the next level
+# without touching L1, and pays for that by committing at SR -- 15 cycles
+# against 3. Two numbers, two levels. Until 2026-10-21 the configuration had
+# an L1 and then DRAM, so an L1 miss cost about 48 cycles where the
+# architecture has something at 15, and the ISS asserted the 15 from the
+# description instead of producing it.
+#
+# The latencies are chosen so that the architectural numbers fall out: an L1
+# hit near 3 cycles (CR - RR) and an L1 miss that hits here near 15 (SR - RR).
+# They are a modelling choice, not a measurement of hardware -- what is not a
+# choice is that there are two levels and roughly what each costs, which the
+# description fixes.
+class _L2(Cache):
+    assoc = 16
+    tag_latency = 11
+    data_latency = 11
+    response_latency = 3
+    mshrs = 16
+    tgts_per_mshr = 8
+
+
 if cpu_kind == "atomic":
     cpu.icache_port = system.membus.cpu_side_ports
     cpu.dcache_port = system.membus.cpu_side_ports
@@ -85,8 +107,12 @@ else:
     cpu.dcache = _L1(size="32kB")
     cpu.icache.cpu_side = cpu.icache_port
     cpu.dcache.cpu_side = cpu.dcache_port
-    cpu.icache.mem_side = system.membus.cpu_side_ports
-    cpu.dcache.mem_side = system.membus.cpu_side_ports
+    system.l2bus = L2XBar()
+    cpu.icache.mem_side = system.l2bus.cpu_side_ports
+    cpu.dcache.mem_side = system.l2bus.cpu_side_ports
+    system.l2cache = _L2(size="256kB")
+    system.l2cache.cpu_side = system.l2bus.mem_side_ports
+    system.l2cache.mem_side = system.membus.cpu_side_ports
 cpu.createInterruptController()
 
 system.mem_ctrl = MemCtrl()

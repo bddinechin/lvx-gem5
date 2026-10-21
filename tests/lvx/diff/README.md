@@ -170,6 +170,20 @@ across libc and the validation binaries, none holds two memory accesses),
 which is why it went unnoticed and is no reason for the ISS to disagree with
 the architecture.
 
+**`check_hwloop_fetch.sh`** pins what a hardware loop's trip costs: its
+bundles, at every body length and wherever the body sits. Before the prefetch
+buffer was modelled it was neither -- 2, 3 and 4 bundles all cost 4.09 cycles
+a trip and 5 or 6 cost 6.12, and the same 4-bundle body cost 4.07 inside one
+64-byte line and 6.09 across two. Four of its ten assertions failed then.
+
+**`check_hierarchy.sh`** pins each level of the memory hierarchy against the
+description. The middle assertion is the one that matters: an L1 miss that
+hits L2 must cost about SR − RR, the latency the description gives a
+`MemoryLevel=2` access, because a configuration whose second level has drifted
+from that is no longer describing this machine. Bounds rather than
+equalities -- the cache parameters are a modelling choice, the levels and
+their order of magnitude are not.
+
 **`check_dcache.sh`** pins that the data cache sees the program's accesses at
 all. Until 2026-10-20 it saw none: every load and store was served
 functionally inside the behaviour through a port proxy, so no request reached

@@ -416,21 +416,57 @@ as the several the functional path splits it into.
 its functional unit's latency -- `ld` 3 cycles, `ld.u` 15 -- instead of making
 dependents wait for the response. The access can still take longer, since
 in-order commit waits for the response too, so the hierarchy is a floor rather
-than a replacement. The cost of that choice is visible: the kernel's 413
-misses carry 13,085 cycles of miss latency in the model and move the total by
-18, because nothing waits on them.
+than a replacement.
 
-**Which leaves a modelling decision, and it is not ours.** The description's
-two load latencies -- CR (3) for `ld`, SR (15) for `ld.u`, which bypasses the
-L1 -- describe a two-level hierarchy: an L1 at about 3 cycles and a next level
-at about 15. The ISS configuration has an L1 and then DRAM, nothing between,
-and DRAM measures about 31 cycles here. So making the hierarchy decide (
-`executeMemRefsAssumeFixedLatency = False`, plus an uncacheable request for
-the `.u` variants) would price `ld.u` at DRAM's 31 rather than the
-architectural 15 -- unless an L2 with a ~12-cycle response is added, at which
-point the architectural number falls out of the configuration instead of being
-asserted beside it. That is the principled destination and it is a statement
-about what the machine is.
+**A miss is not free, and an earlier version of this said so wrongly.** On the
+seidel kernel the 413 misses carry 13,085 cycles of miss latency and move the
+total by 18, which is what "nearly free" was generalised from -- but that
+kernel has independent work to hide them behind. A loop whose next address
+depends on the load it just made hides nothing: 2,000 such misses measured
+53.7 cycles a trip for a five-bundle body, so about 48 cycles each, because
+in-order commit waits for the response and everything behind commit waits for
+that. Misses are hidden when there is work to hide them behind and exposed
+when there is not, which is the behaviour one wants; what the fixed latency
+buys is that *dependents* do not wait, not that misses are cheap.
+
+### There are two levels now, and the second one costs what the ISA says
+
+The description's two load latencies describe two levels: `ld` writes at CR, 3
+cycles after RR, which is an L1 hit; `ld.u` carries `MemoryLevel=2` and writes
+at SR, 15 cycles, which is the next level reached without touching L1. The
+configuration had an L1 and then DRAM, so an L1 miss cost about 48 cycles
+where the architecture has something at 15, and the ISS asserted the 15 out of
+the description rather than producing it.
+
+With a 256kB 16-way L2 (tag 11, data 11, response 3) **an L1 miss that hits it
+costs 15 cycles**, against the description's SR − RR of 15, and a miss past it
+costs 67. `check_hierarchy.sh` pins that -- the middle assertion being the one
+that matters, since a configuration whose second level has drifted from SR − RR
+is no longer describing this machine. The latencies are a modelling choice;
+what is not a choice is that there are two levels and roughly what each costs,
+which the description fixes.
+
+**What is still not modelled is `.u` actually bypassing L1** (the handoff's
+issue 2). It cannot be expressed as a gem5 request flag: `Request::UNCACHEABLE`
+makes `Cache::access` invalidate and forward without allocating, but *every*
+level does that, so the access lands in DRAM rather than at level 2. Doing it
+properly wants a per-request no-allocate honoured by the L1 alone -- a small
+gem5 change -- and until then a `.u` load still allocates in L1 and still hits
+there, charged its architectural 15.
+
+**And "let the hierarchy decide" is not one flag away.** Turning
+`executeMemRefsAssumeFixedLatency` off adds exactly one cycle to a load, not a
+cache round trip: `ld` goes from 4 to 5 and `ld.u` from 16 to 17. The reason is
+that the access initiates at *commit*, which is already the functional unit's
+latency into the instruction's life, so the memory time is serialised after
+the ISA's rather than being it. For the hierarchy to decide, a load's
+functional unit would have to be the address path (one cycle) with the access
+issued then -- which is `executeAllowEarlyMemoryIssue`, and that is the one
+thing `nonBlockingFuncUnits` cannot be combined with, because the early path
+reaches for the instruction at its FU's end and a non-blocking unit has
+released it. Load shadow or hierarchy-priced loads: today the model can have
+either, and reworking the early path onto the `fuCompleted` stamp is what
+would let it have both.
 
 ### Simulation speed
 

@@ -13,10 +13,26 @@
 # cycle, with exit code 0 and no diagnostic anywhere.  On an instrument whose
 # purpose is counting cycles that is the worst available failure mode.
 #
-# WHAT IS MEASURED.  gem5's simInsts counts one *bundle* as one "instruction"
-# on this VLIW, so it is exactly the quantity the bug moved: a bundle wrongly
-# split in two shows up as +1.  The test therefore asserts that 16, 17 and 18
-# syllables all cost the SAME number of bundles.
+# WHAT IS MEASURED.  The bundle's own length, read off the decoder: the
+# LvxDecode trace line for the bundle at `t' gives the next PC, so
+# (next - t) / 4 is the number of syllables the decoder actually consumed.
+# That is the property, stated directly.
+#
+# It used to be gem5's simInsts, on the reasoning that one bundle counts as one
+# "instruction" on this VLIW, so a wrongly split bundle shows up as +1 -- true,
+# and the whole-program total was then asserted equal for 16, 17 and 18
+# syllables.  That broke on 2026-10-21, and not because of the decoder: the
+# three programs differ in code size (the spliced `.word' block is 16, 17 or 18
+# words long), `main' sits right after `t' and its own layout and padding move
+# with that, so the 18-word program ran two *fewer* bundles than the 16-word
+# one -- all of the difference before `t' was ever called, in bundles the test
+# does not care about.  A whole-program total cannot hold three different
+# programs to one number.  The decoder's answer is what the test wanted; now it
+# asks for it.
+#
+# Needs a tracing build (`.opt'), which is the default; under `.fast' the flags
+# do not exist, so the test says so and skips rather than reporting a failure
+# it cannot measure.
 #
 # HOW THE BUNDLES ARE BUILT.  gas will not emit one: its resource table binds
 # well before the syllable count does, and the largest bundle it will assemble
@@ -87,74 +103,84 @@ open(out, "w").write(
 PY
 }
 
-# bundles <name> -> prints simInsts, or "panic", or "fail"
-bundles() {
+# syllables <name> -> prints the syllable count of the bundle at `t', or
+# "panic", or "fail".  Reads it from the decoder's own trace: the next PC minus
+# t, in words.
+syllables() {
     local name=$1
     if ! "$BIN/lvx-mbr-gcc" -O0 -march=lvx-1 -T lvx-sim.ld -L "$LDS" \
              "$work/$name.c" -o "$work/$name.elf" > "$work/$name.build" 2>&1; then
         echo fail; return
     fi
-    if timeout 300 "$GEM5" --outdir="$work/m5-$name" "$RUNCFG" \
-            "$work/$name.elf" < /dev/null > "$work/$name.out" \
-            2> "$work/$name.err"; then
-        awk '$1=="simInsts"{print $2}' "$work/m5-$name/stats.txt"
-    elif grep -q 'MaxBundleSyllables' "$work/$name.err"; then
-        echo panic
-    else
-        echo fail
+    local t
+    t=$("$BIN/lvx-mbr-objdump" -t "$work/$name.elf" | awk '$NF=="t"{print "0x"$1}')
+    [ -n "$t" ] || { echo fail; return; }
+    if ! timeout 300 "$GEM5" --debug-flags=LvxDecode \
+            --outdir="$work/m5-$name" "$RUNCFG" "$work/$name.elf" \
+            < /dev/null > "$work/$name.out" 2> "$work/$name.err"; then
+        if grep -q 'MaxBundleSyllables' "$work/$name.err"; then echo panic
+        else echo fail; fi
+        return
     fi
+    local next
+    next=$(grep -m1 "execute bundle @ $(printf '0x%x' $((t))):" \
+               "$work/$name.out" "$work/$name.err" 2>/dev/null \
+           | sed -n 's/.*next=\(0x[0-9a-f]*\).*/\1/p')
+    [ -n "$next" ] || { echo fail; return; }
+    echo $(( ($next - $t) / 4 ))
 }
 
 rc=0
 for n in 16 17 18 19; do splice $n - "$work/b$n.c" || exit 2; done
 splice 18 14 "$work/bsplit.c" || exit 2
 
-base=$(bundles b16)
-case "$base" in
-  ''|fail|panic) echo "bundle-syllables   FAIL (the 16-syllable baseline did not run: $base)"
-                 exit 2 ;;
-esac
-echo "16-syllables       PASS (baseline: $base bundles)"
+# Tracing is what this reads; say so plainly under a build that has none.
+if ! "$GEM5" --debug-flags=LvxDecode --help > /dev/null 2>&1; then
+    echo "bundle-syllables   SKIP (no tracing in this build: $GEM5)"
+    exit 0
+fi
 
-for n in 17 18; do
-    got=$(bundles "b$n")
-    if [ "$got" = "$base" ]; then
-        echo "$n-syllables       PASS (one bundle, $got)"
+for n in 16 17 18; do
+    got=$(syllables "b$n")
+    if [ "$got" = "$n" ]; then
+        echo "$n-syllables       PASS (one bundle of $got syllables)"
     elif [ "$got" = panic ]; then
         echo "$n-syllables       FAIL (panicked: the cap is below LVX_MAXBUNDLEWORDS)"; rc=1
     elif [ "$got" = fail ]; then
-        echo "$n-syllables       FAIL (did not run)"; rc=1
+        echo "$n-syllables       FAIL (did not run, or t never decoded)"; rc=1
     else
-        echo "$n-syllables       FAIL (split into two bundles: $got vs $base)"; rc=1
+        echo "$n-syllables       FAIL (the decoder took $got syllables, not $n --"
+        echo "                         the rest became a bundle of their own)"; rc=1
     fi
 done
 
 # --- negative control ---------------------------------------------------------
-# A test whose expectation cannot fail is worth nothing.  simInsts has to be
-# able to SEE a second bundle, or the three PASSes above would also pass on an
-# ISS that counted nothing.  Same 18 words, parallel bit cleared at word 14, so
-# they are genuinely two bundles: the count must go up by exactly one.
-got=$(bundles bsplit)
-if [ "$got" = "$((base + 1))" ]; then
-    echo "negative-ctrl      PASS (a real split reads as $got, base+1)"
-elif [ "$got" = "$base" ]; then
-    echo "negative-ctrl      FAIL (simInsts cannot distinguish one bundle from"
-    echo "                         two -- the checks above prove nothing)"; rc=1
+# A test whose expectation cannot fail is worth nothing.  The measurement has
+# to be able to SEE a second bundle, or the three PASSes above would also pass
+# on an ISS that reported any length at all.  Same 18 words, parallel bit
+# cleared at word 14, so they are genuinely two bundles: the first must end
+# after fifteen syllables.
+got=$(syllables bsplit)
+if [ "$got" = 15 ]; then
+    echo "negative-ctrl      PASS (a real split reads as 15 syllables, not 18)"
+elif [ "$got" = 18 ]; then
+    echo "negative-ctrl      FAIL (the measurement cannot distinguish one bundle"
+    echo "                         from two -- the checks above prove nothing)"; rc=1
 else
-    echo "negative-ctrl      FAIL (expected $((base + 1)), got $got)"; rc=1
+    echo "negative-ctrl      FAIL (expected 15 syllables, got $got)"; rc=1
 fi
 
 # --- past the architectural maximum -------------------------------------------
 # 19 syllables is not an LVX bundle at all, so the fetched words are a bad
 # branch target or data.  Truncating silently is what the old decoder did; the
 # only honest answer is to stop and name the address.
-got=$(bundles b19)
+got=$(syllables b19)
 if [ "$got" = panic ]; then
     echo "19-syllables       PASS (panics rather than truncating)"
 elif [ "$got" = fail ]; then
     echo "19-syllables       FAIL (did not run, and did not panic)"; rc=1
 else
-    echo "19-syllables       FAIL (accepted $got bundles for an impossible"
+    echo "19-syllables       FAIL (accepted $got syllables for an impossible"
     echo "                         bundle -- silent truncation is back)"; rc=1
 fi
 

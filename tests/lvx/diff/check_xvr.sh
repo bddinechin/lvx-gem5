@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# XVR vector-register-file ISS check for lvx_v2 (standalone).
+# XVR vector-register-file ISS check for lvx_2 (standalone).
 #
 # gcc has no lvx-2 codegen, so this cannot go through the C native<->ISS diff
 # harness. Instead xvr_move.s is a self-checking lvx-2 assembly program: it moves
@@ -10,7 +10,7 @@
 # exit code 0 -- which exercises the vector register model (arch/lvx/regs/vec.hh)
 # and the shim's XVR helpers end to end.
 #
-# Env: LVX_TOOLCHAIN_BIN  GEM5 (must be an lvx_v2 build)  LVX_CPU(atomic|timing|minor)
+# Env: LVX_TOOLCHAIN_BIN  GEM5 (must be an lvx_2 build)  LVX_CPU(atomic|timing|minor)
 #
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"

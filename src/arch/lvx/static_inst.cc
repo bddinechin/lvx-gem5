@@ -78,7 +78,7 @@ struct IssuedInsn
 } // anonymous namespace
 
 // Split a fetched bundle into its constituent instructions and decode each.
-// Mirrors binutils' lvx_v1_steer_bundle_insns (opcodes/lvx-dis.c): walk the
+// Mirrors binutils' lvx_1_steer_bundle_insns (opcodes/lvx-dis.c): walk the
 // syllables in binary order, assign main syllables to issue slots by steering
 // (ALU overflow spills into the LSU slots — the TINY ops), and attach IMMX
 // syllables (steering 0, beyond the leading BCU pair) to their target ALU/LSU
@@ -218,7 +218,7 @@ LvxStaticInst::LvxStaticInst(const ExtMachInst &emi)
 //
 // A GPR operand's index is decoded[slot] - R0; an SFR operand's is
 // decoded[slot] - PC; a fixed register carries its number directly.
-// XACCESSO's run-time-indexed XVR reads (lvx_v2, not in this port yet) are why
+// XACCESSO's run-time-indexed XVR reads (lvx_2, not in this port yet) are why
 // the operand path had to carry the block operand: a bufferNReg source expands
 // here into its N aligned XVR RegIds -- the dependency the direct storage path
 // used to hide.
@@ -765,7 +765,7 @@ LvxMicroInst::LvxMicroInst(const char *mnem, StaticInstPtr macroop,
     // decides, because the answer needs more than the memory class: the port
     // runs a split access's execute phase twice, so only one that touches
     // nothing else qualifies. See lvx_reg_deps[].lsq. Everything excluded --
-    // the atomics, lvx_v2's extension accesses -- keeps the functional path,
+    // the atomics, lvx_2's extension accesses -- keeps the functional path,
     // as does every access under the simple CPU models, which have no queue.
     const bool lsq = si.opcode < (unsigned)Opcode__NUM
                    && lvx_reg_deps[si.opcode].lsq;

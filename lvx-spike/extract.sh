@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-TUPLE="${1:-../../lvx-mds/lvx-refs/BE/GEM5/lvx_v1/behavior_bodies.inc}"
+TUPLE="${1:-../../lvx-mds/lvx-refs/BE/GEM5/lvx_1/behavior_bodies.inc}"
 if [ ! -f "$TUPLE" ]; then
     echo "error: behavior_bodies.inc not found at '$TUPLE'" >&2
     echo "usage: $0 [path/to/behavior_bodies.inc]" >&2
@@ -23,12 +23,12 @@ extract_fn() {
 }
 
 {
-    echo '/* VERBATIM extract from lvx-mds .../BE/GEM5/lvx_v1/behavior_bodies.inc - do not edit. */'
+    echo '/* VERBATIM extract from lvx-mds .../BE/GEM5/lvx_1/behavior_bodies.inc - do not edit. */'
     echo '#include "shim.h"'
     echo
-    extract_fn execute_lvx_v1_AWAIT_simple
+    extract_fn execute_lvx_1_AWAIT_simple
     echo
-    extract_fn execute_lvx_v1_ADDW_signextw_registerW_registerZ_registerY_simple
+    extract_fn execute_lvx_1_ADDW_signextw_registerW_registerZ_registerY_simple
 } > generated.c
 
 echo "wrote generated.c from $TUPLE"

@@ -853,7 +853,7 @@ Behavior_writeToStorage_SRS(void *self, unsigned /*stage*/, unsigned offset,
     writeSfr(ctx->tc, offset, v);
 }
 
-// --- lvx_v2 vector file access (XVR/XBR/XCR) -----------------------------------
+// --- lvx_2 vector file access (XVR/XBR/XCR) -----------------------------------
 // These load an operand slot from / commit it to the LVX vector file, mirroring
 // the GPR/PGR/QGR helpers above: register_id is the file-relative index (the
 // behavior bodies already subtracted the file base). XVR is 256-bit (4 XRS

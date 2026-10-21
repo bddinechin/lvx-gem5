@@ -18,7 +18,7 @@ Source('shim.cc', tags=['lvx isa'])
 # (ext/softfloat). Pure functions of (rounding mode, raw bits) — no gem5 state —
 # so this is a separate TU from shim.cc, which is the only place softfloat.h is
 # pulled in. Listed in lvx-mds's BE/GEM5/shim-helpers so BE/GEM5 emits no trap
-# stub for these; core-agnostic (same f64 semantics/ABI on lvx_v1 and lvx_v2).
+# stub for these; core-agnostic (same f64 semantics/ABI on lvx_1 and lvx_2).
 Source('shim_fp.cc', tags=['lvx isa'])
 
 # MDS-generated instruction decode + behavior, plus its runtime, compiled as C

@@ -1,8 +1,8 @@
 	## lvx-2 XVR data-move functional test (main returns 0 on success).
 	##
-	## The lvx_v2 vector register file (XVR/XBR/XCR) is wired into gem5's register
+	## The lvx_2 vector register file (XVR/XBR/XCR) is wired into gem5's register
 	## model (arch/lvx/regs/vec.hh + the shim). This exercises it end to end with
-	## the only lvx_v2 instructions that touch it today -- the data moves -- and
+	## the only lvx_2 instructions that touch it today -- the data moves -- and
 	## checks the results against the known inputs, returning 0 iff every lane
 	## round-tripped. Any mismatch (or an unmodeled register) yields a nonzero exit.
 	##

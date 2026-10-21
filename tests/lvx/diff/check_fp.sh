@@ -51,6 +51,6 @@ run_core() {
     fi
 }
 
-run_core lvx_v1 lvx-1 "${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}" || rc=1
-run_core lvx_v2 lvx-2 "${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}" || rc=1
+run_core lvx_1 lvx-1 "${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}" || rc=1
+run_core lvx_2 lvx-2 "${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}" || rc=1
 exit $rc

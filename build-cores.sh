@@ -1,8 +1,8 @@
 #!/bin/bash
 # Build one gem5 ISS executable per LVX core (gem5-lvx1.opt, gem5-lvx2.opt).
 #
-# WHY TWO: lvx-gcc development needs an ISS for each core (lvx_v1 and the
-# 512-bit-SIMD lvx_v2).  The MDS BE/GEM5 backend emits one core's decode +
+# WHY TWO: lvx-gcc development needs an ISS for each core (lvx_1 and the
+# 512-bit-SIMD lvx_2).  The MDS BE/GEM5 backend emits one core's decode +
 # behavior into src/arch/lvx/generated/, and gem5's src/ tree is shared across
 # build variants, so a single generated/ dir can hold only one core at a time.
 # We therefore build sequentially: install core X into generated/, build, and
@@ -15,7 +15,7 @@
 # core built, in the last variant built; the copied gem5-lvx<N>.<variant> are
 # the deliverables.
 #
-# Usage:  ./build-cores.sh [core ...]      (default: lvx_v1 lvx_v2)
+# Usage:  ./build-cores.sh [core ...]      (default: lvx_1 lvx_2)
 #         JOBS=8 ./build-cores.sh          (default: a quarter of the CPUs)
 #         VARIANT=fast ./build-cores.sh    (default: opt)
 #
@@ -53,13 +53,13 @@ case "$variant" in
     *) echo "error: VARIANT must be opt, fast or debug (got '$variant')" >&2
        exit 1 ;;
 esac
-if [ $# -eq 0 ]; then cores=(lvx_v1 lvx_v2); else cores=("$@"); fi
+if [ $# -eq 0 ]; then cores=(lvx_1 lvx_2); else cores=("$@"); fi
 
 [ -d "$be" ] || { echo "error: BE/GEM5 build dir not found: $be" >&2
                   echo "run 'make config && make all' from lvx-csw/ first" >&2; exit 1; }
 
 for core in "${cores[@]}"; do
-    n="${core#lvx_v}"                       # lvx_v1 -> 1
+    n="${core#lvx_}"                       # lvx_1 -> 1
     out="$here/build/gem5-lvx${n}.${variant}"
     echo "=== $core: installing generated/ ==="
     # BE/GEM5 generates each core into its own $(core)/ subdir (glue included), so
@@ -80,6 +80,6 @@ done
 echo
 echo "Built:"
 for core in "${cores[@]}"; do
-    n="${core#lvx_v}"
+    n="${core#lvx_}"
     ls -la "$here/build/gem5-lvx${n}.${variant}"
 done

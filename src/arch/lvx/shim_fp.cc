@@ -46,10 +46,10 @@
  * rounding mode, clears the scratch flags, runs the op, and returns the result
  * plus this op's raised flags in the per-op Tuple's exact field order.
  *
- * Core-agnostic (shared by lvx_v1 and lvx_v2): FP semantics are identical across
+ * Core-agnostic (shared by lvx_1 and lvx_2): FP semantics are identical across
  * cores (a shared-instruction difference would be an ISA authoring error), and
  * the helper ABI is verified byte-identical between the two cores' generated
- * glue. On lvx_v2 the packed/SIMD FP ops invoke these same scalar helpers.
+ * glue. On lvx_2 the packed/SIMD FP ops invoke these same scalar helpers.
  */
 #include <cstdint>
 

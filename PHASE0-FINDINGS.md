@@ -8,9 +8,9 @@ decoder reach gem5) and size Phase 1. **Result: settled, with running code.**
 The MDS **already** generates, via the existing `BE/GEM5` back-end, everything we
 need as portable C:
 
-- `lvx-mds/lvx-refs/BE/GEM5/lvx_v1/behavior_bodies.inc` (74K lines) — per-opcode
+- `lvx-mds/lvx-refs/BE/GEM5/lvx_1/behavior_bodies.inc` (74K lines) — per-opcode
   `fetch`/`execute`/`commit` bodies.
-- `lvx-mds/lvx-refs/BE/GEM5/lvx_v1/Decode.c` (4.6K lines) — the `Decoding.table`
+- `lvx-mds/lvx-refs/BE/GEM5/lvx_1/Decode.c` (4.6K lines) — the `Decoding.table`
   decode tree as nested-switch C, one function per encoding space
   (`simple`/`double`/`triple`).
 
@@ -33,7 +33,7 @@ generated C verbatim** and hand-write only a runtime shim — we do **not** buil
    then flush at the bundle boundary. This is the register-swap hazard the plan
    flagged — handled structurally, no bespoke code.
 3. **The decoder is reusable as-is.** The full 963-opcode `simple`-space
-   `Decode_Decoding_lvx_v1_simple()` compiles cleanly as standalone C.
+   `Decode_Decoding_lvx_1_simple()` compiles cleanly as standalone C.
 
 Notes:
 - The generated code uses `this` as a parameter name ⇒ **must be compiled as C**

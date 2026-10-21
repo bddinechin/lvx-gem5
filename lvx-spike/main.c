@@ -5,8 +5,8 @@
 /* Pull in the VERBATIM generated static execute_ functions. */
 #include "generated.c"
 
-#define ADDW execute_lvx_v1_ADDW_signextw_registerW_registerZ_registerY_simple
-#define AWAIT execute_lvx_v1_AWAIT_simple
+#define ADDW execute_lvx_1_ADDW_signextw_registerW_registerZ_registerY_simple
+#define AWAIT execute_lvx_1_AWAIT_simple
 
 /* Fill an ADDW operand context: W=dest, Z/Y=sources, signextw modifier. */
 static void set_addw(Insn *in, Cpu *cpu, int W, int Z, int Y, int signextw) {

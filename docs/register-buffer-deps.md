@@ -10,7 +10,7 @@
 > XACCESSO/XALIGNO lost their `buffer`/`mask`/`where` arithmetic. Because
 > `METHOD(%k)` now sits inside the Location, `proxyActions` also classifies `%k`
 > as a Read. **Verified value-preserving** by the `BE/GEM5/TEST` differential
-> harness: 1453/1453 lvx_v2 traces identical to the pre-change generation, over
+> harness: 1453/1453 lvx_2 traces identical to the pre-change generation, over
 > Kalray's real `Int256_`.
 >
 > **gem5 half — foundation implemented and verified.** A `BE/GEM5` generator
@@ -66,7 +66,7 @@
 > - **The GPR tuples are tracked.** `reg-operands.pl` modelled only `GPR` and
 >   `SFR`, so an operand in `PGR` (an aligned pair) or `QGR` (an aligned quad)
 >   was invisible — and that is where every 128- and 256-bit value lives, there
->   being no wide register file. 599 lvx_v2 opcodes had **no destination at
+>   being no wide register file. 599 lvx_2 opcodes had **no destination at
 >   all** and so a latency of 0: `lq`, `lo`, and every packed SIMD result. They
 >   now expand into their member GPRs, which is the granule the scoreboard
 >   tracks and what a later scalar read of half a vector depends on. The port's
@@ -157,7 +157,7 @@
 > class and the ISS used to ignore, over-stalling each by exactly one.
 > `reg-operands.pl` already parsed the read stage out of
 > `operandFromRegFile_*(this, STAGE, …)` and threw it away for reads; it now
-> emits it as `relLat = readStage - RR` per source operand (323 lvx_v2 opcodes
+> emits it as `relLat = readStage - RR` per source operand (323 lvx_2 opcodes
 > have one), `setUpRegs` folds it into a per-source vector — taking the
 > **minimum** over the sub-instructions that read a register, the earliest
 > reader being the binding one — and `StaticInst::srcRegsRelativeLats()` (new,
@@ -376,7 +376,7 @@
 > `lvx_reg_deps[].lsq` is set for an access whose execute phase has no storage
 > write, trap or branch hint, and which makes exactly one access -- the queue
 > being one per instruction (`MinorDynInst::inLSQ` is a single bool), so a
-> second would be silently dropped. 75 of 75 on lvx_v1, 91 of 215 on lvx_v2:
+> second would be silently dropped. 75 of 75 on lvx_1, 91 of 215 on lvx_2:
 > the excluded 124 are the extension accesses (`XLO`, `XSO`, `XPL*`), which
 > also update `$cs.XMF` and the XVR file. Worth noting that a hand grep for
 > bodies calling `MEM_load`/`MEM_store` found none with side effects and was
@@ -455,7 +455,7 @@ instructions. **We must not inherit this on the gem5 LVX target.**
   timing but still executes one instruction to completion. The CPUs that stall on
   register hazards are **MinorCPU** (in-order) and **O3CPU** (out-of-order);
   neither is bound, and neither would have anything to consume yet.
-- `XACCESSO`/`XALIGNO` are `lvx_v2`; the port's generated tuples are `lvx_v1`
+- `XACCESSO`/`XALIGNO` are `lvx_2`; the port's generated tuples are `lvx_1`
   only. So this is a *design-ahead* fix: get the attribution right in the model
   now, so the buffer instructions arrive already trackable.
 
@@ -523,14 +523,14 @@ run-time addresses; nothing about the value computation moves.
 Because `CodeGen` ignores slot 4, the functional C cannot change; proved directly
 rather than argued. Build the current sources twice — with and without the
 `.%2` on `Instruction.yml` (grammar/`.pm` changes present in both, so their effect
-is isolated) — and diff the regenerated `lvx_v2 behavior_bodies.inc`:
+is isolated) — and diff the regenerated `lvx_2 behavior_bodies.inc`:
 
 - **24 changed lines, all `(AGGL.XVR` → `(AGGL.XVR.%2`**, on exactly the 12
   block-read nodes (2 reads × 6 buffer sizes). **Zero non-`.%2` changes.**
 - All 12 sit **inside `/* */` S-expr comments** (in-comment 12, in-code 0): the
-  emitted C is byte-identical, so the `BE/GEM5/TEST` lvx_v2 trace is unchanged by
+  emitted C is byte-identical, so the `BE/GEM5/TEST` lvx_2 trace is unchanged by
   construction — no need to run the harness to know it stays 0/1453.
-- **lvx_v1 `behavior_bodies.inc` byte-identical** — the grammar addition is inert on
+- **lvx_1 `behavior_bodies.inc` byte-identical** — the grammar addition is inert on
   the core that uses no attributed `Location` (control for the `.pm` change).
 
 ### Phase 2 (implemented): operand-*relative* generation
@@ -564,7 +564,7 @@ Two payoffs beyond deleting the arithmetic:
 
 **Verified value-preserving** by the `BE/GEM5/TEST` differential harness against
 Kalray's `Int256_`: the pre-change generation and the phase-2 generation produce
-**1453/1453 identical `lvx_v2` traces**. Since phase 2 changes the emitted C (the
+**1453/1453 identical `lvx_2` traces**. Since phase 2 changes the emitted C (the
 address arithmetic is inlined into `readFromStorage_XVR` instead of staged through
 `where_0`), the harness — not a comment-only diff — is what proves equivalence.
 
@@ -655,7 +655,7 @@ fact (`OpClass` per opcode) that the current `No_OpClass` bundle also lacks.
 1. `Behavior.y` + regen `Behavior.pm`; add the `Proxy`-`Location` case to
    `LIB/Width.pm` (bound by N) and to `BE/GEM5` CodeGen (lower to the storage
    form). Re-express the `BIA<N>` formats + `XACCESSO`/`XALIGNO`.
-2. `make all && make -C BE/GEM5 check` — `BE/GEM5/TEST` **lvx_v2** must stay
+2. `make all && make -C BE/GEM5 check` — `BE/GEM5/TEST` **lvx_2** must stay
    0/1453 (value semantics identical by construction).
 3. New `BE/GEM5` emitters: `operandRole` table + `bufferNReg` block expansion.
 4. gem5: `LvxStaticInst` register lists; raise `MaxInstSrcRegs`; wire

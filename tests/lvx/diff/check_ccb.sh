@@ -2,7 +2,7 @@
 #
 # CCB fused-compare-and-branch ISS check, run against BOTH LVX cores.
 #
-# ccb/ccbx exist in lvx_v1 and lvx_v2, and both ISS executables link the same
+# ccb/ccbx exist in lvx_1 and lvx_2, and both ISS executables link the same
 # hand-written Behavior_ccbcomp shim helper, so the one self-checking program
 # (ccb_cmp.s) must pass on each.  We assemble it with the matching -march, link
 # with the shared crt0, run under the per-core gem5 binary, and require exit
@@ -50,6 +50,6 @@ run_core() {
     fi
 }
 
-run_core lvx_v1 lvx-1 "${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}" || rc=1
-run_core lvx_v2 lvx-2 "${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}" || rc=1
+run_core lvx_1 lvx-1 "${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}" || rc=1
+run_core lvx_2 lvx-2 "${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}" || rc=1
 exit $rc

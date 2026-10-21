@@ -17,8 +17,8 @@ Goal: a functional gem5 simulator that runs `lvx-mbr-gcc` output so we can valid
 
 | Concern | Authority |
 |---|---|
-| Instruction semantics | `<Behavior>` element of each `<Opcode>` in `lvx-mds/lvx-refs/MDD/lvx/lvx_v1/Opcode.table` — a parsed, typed S-expression AST (grammar: `MDS/DOC/Behavior.y`; walker: `MDS/LIB/Behavior.pm`). Already lowered to the ISS by `MDS/BE/GEM5/BIN/Behavior.pl`. |
-| Decode tree | `lvx-mds/lvx-refs/MDD/lvx/lvx_v1/Decoding.table` — authoritative, pre-optimized (Theiling, LCTES 2001), nested `<Decode shift/mask/case>` → `opcodes=`. |
+| Instruction semantics | `<Behavior>` element of each `<Opcode>` in `lvx-mds/lvx-refs/MDD/lvx/lvx_1/Opcode.table` — a parsed, typed S-expression AST (grammar: `MDS/DOC/Behavior.y`; walker: `MDS/LIB/Behavior.pm`). Already lowered to the ISS by `MDS/BE/GEM5/BIN/Behavior.pl`. |
+| Decode tree | `lvx-mds/lvx-refs/MDD/lvx/lvx_1/Decoding.table` — authoritative, pre-optimized (Theiling, LCTES 2001), nested `<Decode shift/mask/case>` → `opcodes=`. |
 | Encoding spaces | `Encoding.table`: `simple` (1×32-bit), `double` (2×32-bit), `triple` (3×32-bit). A single instruction is 1–3 syllables (main + up to two IMMX). |
 | VLIW bundling | `lvx-target/lvx_VLIWInstructionBundling.tex` (spec) + `lvx-binutils/gas/config/tc-lvx.c` (assembler = the inverse operation). |
 | `APPLY` helpers / FP / atomics | KVX ISS `iss_core/iss/include/kvx/helpers_core.h` and `iss_core/syscall_lib/` as the reference implementation. |

@@ -43,7 +43,7 @@ inline constexpr unsigned MaxOperandsPerInst = 12;
 // below it; overflowing would silently drop a dependency, which understates
 // the cycle count, so setUpRegs panics instead (see there).
 //
-// lvx_v2's register-buffer operands (up to 64 XVR regs for buffer64Reg) are not
+// lvx_2's register-buffer operands (up to 64 XVR regs for buffer64Reg) are not
 // tracked yet and will raise MaxInstSrcRegs when they reach this port.
 inline constexpr unsigned MaxInstSrcRegs = 6;
 inline constexpr unsigned MaxInstDestRegs = 4;

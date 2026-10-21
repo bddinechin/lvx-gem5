@@ -153,7 +153,7 @@ void    Behavior_writeToStorage_NPC (void *, unsigned, unsigned, unsigned, unsig
 void    Behavior_writeToStorage_SFR (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsigned, int256_t);
 
-/* lvx_v2 vector-file access. XVR (256-bit), XBR (128-bit) and XCR (64-bit) are
+/* lvx_2 vector-file access. XVR (256-bit), XBR (128-bit) and XCR (64-bit) are
  * views of the LVX vector register file (gem5 vecRegClass, regs/vec.hh): all XRS
  * 64-bit cells, XVR i = cells [4i..4i+3]. The operand{From,To}RegFile_* helpers
  * load/commit an operand slot (register_id is file-relative); read/writeFromStorage

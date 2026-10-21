@@ -8,7 +8,7 @@
  * oracle the generated Behavior C runs against: a union of lane views plus the
  * int256_* operator library the generator emits calls to. Only the integer lanes
  * exist — the generated LVX bodies never touch float lanes (float ops go through
- * HELPERs) — plus the 16 single-bit views the lvx_v2 bit-slice code reads.
+ * HELPERs) — plus the 16 single-bit views the lvx_2 bit-slice code reads.
  *
  * The value semantics deliberately match what the LVX Behavior operators mean
  * (Behavior.md): where an operator has a non-obvious convention (sat/satu clamp,

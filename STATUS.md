@@ -181,7 +181,7 @@ Three timing defects were fixed on 2026-10-16 and one named, all in
 `docs/register-buffer-deps.md` and
 `../docs/handoff-mds-load-variants.md`; `tests/lvx/diff/check_timing.sh`
 pins what was fixed. Fixed: the **GPR tuples** `PGR`/`QGR` were untracked, so
-599 lvx_v2 opcodes — `lq`, `lo` and every packed SIMD result — had no
+599 lvx_2 opcodes — `lq`, `lo` and every packed SIMD result — had no
 destination register and therefore no latency; an **uncached load** (`ld.u`,
 `ld.us`) returns at SR, a latency of 15, not the L1's 3; and a **taken branch**
 now costs `Processor@minTaken`, charged as a bubble on issue that a pending
@@ -351,7 +351,7 @@ but its operand slots and the memory helper. BE/GEM5 now decides that rather
 than the port assuming it: `lvx_reg_deps[].lsq` is set for an access whose
 execute phase has no storage write, trap or branch hint **and** makes exactly
 one access, since the queue is one per instruction. 75 of 75 accesses qualify
-on lvx_v1; 91 of 215 on lvx_v2, the other 124 being the extension accesses
+on lvx_1; 91 of 215 on lvx_2, the other 124 being the extension accesses
 (`XLO`, `XSO`, `XPL*`), which also update `$cs.XMF` and the XVR file. Those
 and the atomics keep the functional path -- correct, but invisible to the
 cache.
@@ -398,10 +398,10 @@ sharing sound.
 
 ### Behavior helpers
 
-**25 helpers remain panic stubs on `lvx_v2`** (the superset core), 22 on `lvx_v1`
+**25 helpers remain panic stubs on `lvx_2`** (the superset core), 22 on `lvx_1`
 — measured 2026-10-08 from `lvx-mds`'s `lvx-refs/BE/GEM5/<core>/helper_stubs.inc`,
 which is per core and independent of whichever core `generated/` currently holds.
-(35 stub *lines* on lvx_v2: a few helpers appear at more than one signature, so
+(35 stub *lines* on lvx_2: a few helpers appear at more than one signature, so
 the grep below counts lines, not names.)
 
 This said 60, which was the sum of the groups below when they were written. Two
@@ -451,9 +451,9 @@ grep -B0 lvx_behavior_unimpl src/arch/lvx/generated/helper_stubs.inc |
   `throw_PRIVILEGE` are done): `rfe`, `waitit`, `idle`, `break`,
   `throw_OPCODE`, `throw_PRIVILEGE`, `syncgroup`, and the `rfe_owner`,
   `stop_owner`, `syncgroup_owner` variants — full-system, out of scope here.
-- **Complex FP** — **all 3 remain**, but the `lvx_v2`-only packed f16<->i16
+- **Complex FP** — **all 3 remain**, but the `lvx_2`-only packed f16<->i16
   conversions noted with them are ***implemented***: `fmulc_32_32`/`ffmac_32_32`/`fconj_32_32` (FMULWC/FFMAWC,
-  both cores), plus the **`lvx_v2`-only packed f16↔i16 conversions** (4):
+  both cores), plus the **`lvx_2`-only packed f16↔i16 conversions** (4):
   `f16_to_i16`/`_ui16`, `i16_to_f16`/`ui16_to_f16`. All decompose into standard
   ops and are implementable RISC-V-conformantly.
 - Timing/O3, full-system mode: out of scope (SE functional only).

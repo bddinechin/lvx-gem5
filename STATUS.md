@@ -335,6 +335,57 @@ develop against. Every harness defaults to the `.opt` name, so `.fast` is
 opt-in and is therefore the one that can go stale unnoticed; `build-cores.sh`
 says so at the top.
 
+### The hardware loop's prefetch buffer is modelled
+
+`LOOPDO`'s own behaviour invalidates one -- `(EFFECT.ID.invalpfb)` in
+`Instruction.yml` -- so the machine replays a hardware loop's body from a
+prefetch buffer and the back edge costs no fetch. The ISS made the back edge
+free in the *branch* sense (`freeRedirect`, no `minTaken`) but still re-fetched
+the body every trip, and paid for that twice:
+
+- a body of 2, 3 or 4 bundles all cost **4.09** cycles a trip, 5 or 6 cost
+  **6.12**, and only from 7 up did a trip cost its bundles. The floor is the
+  pipeline between Fetch2 deciding the redirect and Execute issuing the
+  target -- three forward delays and the signal back.
+- the *same* 4-bundle body cost **4.07** inside one 64-byte line and **6.09**
+  across two.
+
+Together they cost lvx-mlir's software-pipelined VEC=4 `mymma` its entire
+gain: 6.03 cycles a trip against the 4 its scheduler had planned, so
+pipelining that kernel looked worthless
+(`../docs/handoff-iss-lvx-mlir-findings.md`, issues 1 and 4 -- they are one
+bug, and the second is the cause of the first).
+
+`Fetch2` now holds the body: captured on one trip, emitted from the buffer on
+the rest with no redirect and no line fetch, so nothing drains and a trip
+costs its bundles. The instruction ending each trip still claims a correct
+prediction to the loop top, which is what stops Execute squashing when it
+resolves the architectural back edge. Only a straight line between `LS` and
+`LE` is taken -- each instruction must start where the last ended -- and a
+stream change, a branch out or a body past 32 bundles drops it and the next
+trip recaptures, falling back to the fetch-every-trip path.
+
+Measured after: every body length from 2 to 8 costs its bundle count, and the
+straddling body costs what the aligned one does (`check_hwloop_fetch.sh`).
+`mymma-vec4-pipe` runs at **4.00 cycles a trip against its schedule's 4**, and
+the auto-vectorised and hand-written VEC=8 kernels -- identical instruction
+for instruction, 0.73 apart before because one straddled a line -- now agree
+exactly.
+
+One thing it cost: those two VEC=8 kernels now measure 19.82 cycles a trip
+where the better-placed one measured 19.00, against a schedule of 19. Their
+bodies are five bundles with 15-cycle `.u` loads, so fetch is nowhere near the
+limit and the 0.8 is something else the buffer introduced on a long body. It
+is not alignment any more -- the two agree -- and it is worth finding.
+
+**One trap worth keeping.** The first attempt was functionally wrong, not just
+slow: on the cycle the replay starts, Fetch2 carried on decoding the line
+sequentially past `LE` and handed Execute instructions from *after* the loop,
+which were then committed -- `run_diff`'s oracle caught it as a wrong answer.
+The old redirect was saved from that by the `BranchData` it signalled; the
+buffer signals none, because not redirecting the front end is the whole point.
+The replay has to end the cycle's decoding itself.
+
 ### Loads and stores now go through the load/store queue
 
 Which is what the split was for. A load or store syllable is an `isMemRef()`

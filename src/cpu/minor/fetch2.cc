@@ -256,6 +256,40 @@ Fetch2::fetchEngineRedirect(MinorDynInstPtr inst, PCStateBase &next_pc,
     inst->predictedTaken = true;
     set(inst->predictedTarget, next_pc);
 
+    /* The body of this loop is what the prefetch buffer is for. If one is
+     * held for this very loop, the next trip comes from there and the front
+     * end is not redirected at all -- Fetch2 keeps producing, so nothing
+     * drains and the trip costs its bundles. Otherwise start capturing it;
+     * the redirect below brings fetch back to `ls', where capture begins. */
+    auto &lb = thread.loopBuffer;
+    const Addr ls = next_pc.instAddr();
+    const Addr le = inst->pc->instAddr() + inst->staticInst->size();
+
+    if (lb.ls == ls && lb.le == le) {
+        /* This instruction is the body's last, and it has just been
+         * captured, so a capture in progress is now complete. */
+        if (lb.capturing && !lb.insts.empty()) {
+            lb.capturing = false;
+            lb.valid = true;
+            DPRINTF(Fetch, "Loop buffer: captured %d bundles of [%#x, %#x)\n",
+                    lb.insts.size(), lb.ls, lb.le);
+        }
+        if (lb.valid) {
+            /* From here the body comes out of the buffer and the front end
+             * is not redirected at all, so nothing drains and a trip costs
+             * its bundles. */
+            lb.replaying = true;
+            lb.index = 0;
+            return;
+        }
+    }
+
+    lb.reset();
+    lb.ls = ls;
+    lb.le = le;
+    lb.capturing = true;
+    lb.id = inst->id;
+
     thread.expectedStreamSeqNum = inst->id.streamSeqNum;
     branch = BranchData(BranchData::BranchPrediction, inst->id.threadId,
         inst->id.streamSeqNum, thread.predictionSeqNum + 1, next_pc, inst);
@@ -264,6 +298,75 @@ Fetch2::fetchEngineRedirect(MinorDynInstPtr inst, PCStateBase &next_pc,
     DPRINTF(Branch, "Fetch engine redirect (no branch) inst: %s target: %s"
         " new predictionSeqNum: %d\n", *inst, next_pc,
         thread.predictionSeqNum);
+}
+
+// Emit the hardware loop's body from the prefetch buffer: no redirect, no
+// line fetch, Fetch2 simply keeps producing. See Fetch2ThreadInfo::LoopBuffer
+// for why the machine has one and what re-fetching the body costs without it.
+bool
+Fetch2::replayLoopBuffer(ThreadID tid, ForwardInstData &insts_out,
+                         unsigned int &output_index)
+{
+    Fetch2ThreadInfo &fetch_info = fetchInfo[tid];
+    auto &lb = fetch_info.loopBuffer;
+
+    if (!lb.replaying || lb.insts.empty())
+        return false;
+
+    auto *isa = cpu.getContext(tid)->getIsaPtr();
+    bool emitted = false;
+
+    while (lb.replaying && output_index < outputWidth) {
+        MinorDynInstPtr inst = new MinorDynInst(lb.insts[lb.index], lb.id);
+        /* The sequence numbers are Fetch2's to assign, exactly as for an
+         * instruction taken out of a line. The stream and prediction numbers
+         * do not move: nothing is predicted and nothing is redirected, which
+         * is the whole point. */
+        inst->id.fetchSeqNum = fetch_info.fetchSeqNum;
+        inst->id.predictionSeqNum = fetch_info.predictionSeqNum;
+        set(inst->pc, *lb.pcs[lb.index]);
+        fetch_info.fetchSeqNum++;
+
+        const bool lastOfTrip = (lb.index + 1 == lb.insts.size());
+        if (lastOfTrip) {
+            /* Does the loop go round again? Ask the fetch engine, the same
+             * question fetchEngineRedirect asks: it reads LC, which lags by
+             * the trips in flight, so it keeps saying yes until the
+             * architectural count is spent and Execute resolves the real
+             * exit. */
+            std::unique_ptr<PCStateBase> next(lb.pcs[lb.index]->clone());
+            lb.insts[lb.index]->advancePC(*next);
+            if (isa->fetchRedirect(*next)) {
+                /* Claim the back edge as a correctly predicted branch, just
+                 * as fetchEngineRedirect does, so that Execute's tryToBranch
+                 * sees the architectural redirect coming and does not squash
+                 * what is already in the pipeline behind it. */
+                inst->predictedTaken = true;
+                set(inst->predictedTarget, *next);
+                lb.index = 0;
+            } else {
+                /* The loop is ending. Stop replaying and let the lines the
+                 * front end has gone on fetching past `le' carry the stream;
+                 * fetch_info.pc was left at `le' when the body was captured,
+                 * so sequential fetch resumes where it left off. */
+                DPRINTF(Fetch, "Loop buffer: last trip, resuming fetch\n");
+                lb.replaying = false;
+            }
+        } else {
+            lb.index++;
+        }
+
+        if (output_index == 0)
+            insts_out.resize(outputWidth);
+        insts_out.insts[output_index] = inst;
+        output_index++;
+        emitted = true;
+
+        if (debug::MinorTrace && inst->staticInst->isMacroop())
+            inst->minorTraceInst(*this);
+    }
+
+    return emitted;
 }
 
 void
@@ -290,6 +393,10 @@ Fetch2::evaluate()
             " has arrived\n");
         dumpAllInput(branch_inp.threadId);
         fetchInfo[branch_inp.threadId].havePC = false;
+        /* And drop the loop buffer: the stream it captured is gone, so the
+         * body it holds may not be the one about to run. The next trip
+         * recaptures. */
+        fetchInfo[branch_inp.threadId].loopBuffer.reset();
     }
 
     assert(insts_out.isBubble());
@@ -333,10 +440,27 @@ Fetch2::evaluate()
 
         unsigned int output_index = 0;
 
+        /* A hardware loop's body comes from the prefetch buffer when one is
+         * held, and then no line is consumed this cycle. */
+        const bool from_loop_buffer =
+            replayLoopBuffer(tid, insts_out, output_index);
+
         /* Pack instructions into the output while we can.  This may involve
          * using more than one input line.  Note that lineWidth will be 0
-         * for faulting lines */
-        while (line_in &&
+         * for faulting lines.
+         *
+         * `loopBuffer.replaying' ends the cycle as well, and must: the body's
+         * last instruction turns the replay on part-way through this loop,
+         * and without stopping here Fetch2 would carry on decoding the line
+         * sequentially past `le' and hand Execute instructions from after the
+         * loop -- wrong-path work that is then committed. The old redirect
+         * was saved from that by the branch it signalled; the buffer
+         * signals none, because not redirecting the front end is the point.
+         * Stopping rather than dumping also leaves inputIndex where it is,
+         * so when the loop ends decoding resumes at `le' from the line the
+         * front end has gone on fetching. */
+        while (!from_loop_buffer && !fetch_info.loopBuffer.replaying &&
+            line_in &&
             (line_in->isFault() ||
                 fetch_info.inputIndex < line_in->lineWidth) && /* More input */
             output_index < outputWidth && /* More output to fill */
@@ -487,6 +611,36 @@ Fetch2::evaluate()
                     /* Advance PC for the next instruction */
                     decoded_inst->advancePC(*fetch_info.pc);
 
+                    /* Capture the hardware loop's body into the prefetch
+                     * buffer, before the back edge below is acted on -- the
+                     * instruction that triggers it is the body's last.
+                     *
+                     * Only a straight line is taken: each instruction must
+                     * start where the previous one ended, and all of it must
+                     * lie in [ls, le). A branch out, a predicted-taken
+                     * branch inside it, or a body too long gives up and lets
+                     * the next trip try again, which is the fetch-every-trip
+                     * path and merely slower. */
+                    {
+                        auto &lb = fetch_info.loopBuffer;
+                        if (lb.capturing) {
+                            const Addr a = dyn_inst->pc->instAddr();
+                            const Addr want = lb.insts.empty() ? lb.ls
+                                : lb.pcs.back()->instAddr() +
+                                  lb.insts.back()->size();
+                            if (a != want || a >= lb.le ||
+                                lb.insts.size() >=
+                                    Fetch2ThreadInfo::LoopBuffer::MaxBundles) {
+                                DPRINTF(Fetch, "Loop buffer: giving up the"
+                                    " capture at %#x (wanted %#x)\n", a, want);
+                                lb.reset();
+                            } else {
+                                lb.insts.push_back(decoded_inst);
+                                lb.pcs.emplace_back(dyn_inst->pc->clone());
+                            }
+                        }
+                    }
+
                     /* Predict any branches and issue a branch if
                      *  necessary */
                     predictBranch(dyn_inst, prediction);
@@ -588,7 +742,11 @@ Fetch2::evaluate()
      *  mark stage as active */
     for (ThreadID i = 0; i < cpu.numThreads; i++)
     {
-        if (getInput(i) && nextStageReserve[i].canReserve()) {
+        /* A replaying loop buffer is input of its own: it needs no line, so
+         * the stage must stay active or the loop would stall waiting for a
+         * fetch it is not doing. */
+        if ((getInput(i) || fetchInfo[i].loopBuffer.replaying) &&
+            nextStageReserve[i].canReserve()) {
             cpu.activityRecorder->activateStage(Pipeline::Fetch2StageId);
             break;
         }

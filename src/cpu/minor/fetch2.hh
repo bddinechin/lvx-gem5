@@ -155,6 +155,66 @@ class Fetch2 : public Named
 
         /** Blocked indication for report */
         bool blocked = false;
+
+        /** The hardware loop's prefetch buffer.
+         *
+         *  LOOPDO's own behaviour invalidates one -- (EFFECT.ID.invalpfb) in
+         *  the LVX description -- so the machine replays a hardware loop's
+         *  body from it and the back edge costs no fetch. Without that, an
+         *  ISS re-fetches the body every trip and pays twice: the pipeline
+         *  between deciding the redirect here and Execute issuing the target
+         *  floors a trip at about four cycles whatever the body's length, and
+         *  a body spanning two fetch lines costs two cycles more again. Both
+         *  were measured, and together they cost a software-pipelined kernel
+         *  its whole gain (lvx-csw/docs/handoff-iss-lvx-mlir-findings.md).
+         *
+         *  So the body is captured on one trip and emitted from here on the
+         *  rest, with no redirect and no line fetch: Fetch2 simply keeps
+         *  producing. The instruction that ends each trip still claims a
+         *  correct prediction to the loop top, which is what stops Execute
+         *  squashing when it resolves the architectural back edge.
+         *
+         *  Only `ls'/`le' and the straight-line body between them are held;
+         *  anything else -- a branch out, a stream change, a different loop
+         *  -- invalidates it and the next trip recaptures. */
+        struct LoopBuffer
+        {
+            /** The longest body held. A loop longer than this keeps the
+             *  fetch-every-trip path, which is correct and merely slower:
+             *  the cost it suffers is a fixed few cycles, so it matters
+             *  least exactly where the body is longest. */
+            static constexpr unsigned MaxBundles = 32;
+
+            /** The body, in fetch order. */
+            std::vector<StaticInstPtr> insts;
+            std::vector<std::unique_ptr<PCStateBase>> pcs;
+
+            /** The loop this was captured for: the body is [ls, le). */
+            Addr ls = 0;
+            Addr le = 0;
+
+            /** The id of the line the body came from, reused for the
+             *  instructions emitted from here (the sequence numbers are
+             *  reassigned per instruction, as for a fetched one). */
+            InstId id;
+
+            bool capturing = false;
+            bool valid = false;
+            bool replaying = false;
+            /** Next entry to emit while replaying. */
+            unsigned index = 0;
+
+            void
+            reset()
+            {
+                insts.clear();
+                pcs.clear();
+                capturing = valid = replaying = false;
+                index = 0;
+            }
+        };
+
+        LoopBuffer loopBuffer;
     };
 
     std::vector<Fetch2ThreadInfo> fetchInfo;
@@ -199,6 +259,12 @@ class Fetch2 : public Named
      *  branched.  Marks the instruction as predicted-taken to the new PC, so
      *  Execute later finds a correctly predicted branch and does not squash:
      *  the redirect is free on the machine and must be free here. */
+    /** Emit instructions from the thread's loop buffer into `insts_out',
+     *  advancing `output_index'. Returns true while the buffer is still
+     *  replaying, i.e. while no line should be consumed this cycle. */
+    bool replayLoopBuffer(ThreadID tid, ForwardInstData &insts_out,
+                          unsigned int &output_index);
+
     void fetchEngineRedirect(MinorDynInstPtr inst, PCStateBase &next_pc,
                              BranchData &branch);
 

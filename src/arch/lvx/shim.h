@@ -158,7 +158,7 @@ void    Behavior_writeToStorage_SRS (void *, unsigned, unsigned, unsigned, unsig
  * 64-bit cells, XVR i = cells [4i..4i+3]. The operand{From,To}RegFile_* helpers
  * load/commit an operand slot (register_id is file-relative); read/writeFromStorage
  * are the run-time-indexed cell accesses (xlo/xso qindex forms). Implemented in
- * shim.cc over the VecRegContainer; unused by gem5-lvx1. */
+ * shim.cc over the VecRegContainer; unused by gem5-lvx-1. */
 void Behavior_operandFromRegFile_XVR(void *, unsigned, int, int, int);
 void Behavior_operandFromRegFile_XBR(void *, unsigned, int, int, int);
 void Behavior_operandFromRegFile_XCR(void *, unsigned, int, int, int);

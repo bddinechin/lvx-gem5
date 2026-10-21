@@ -6,7 +6,7 @@
 # harness. Instead xvr_move.s is a self-checking lvx-2 assembly program: it moves
 # known values into the XVR/XCR vector registers and back (xmovetd/xputqo ->
 # xmovefo/xmovefd) and returns 0 iff every lane round-tripped. We assemble it
-# with -march=lvx-2, link with the shared crt0, run under gem5-lvx2, and require
+# with -march=lvx-2, link with the shared crt0, run under gem5-lvx-2, and require
 # exit code 0 -- which exercises the vector register model (arch/lvx/regs/vec.hh)
 # and the shim's XVR helpers end to end.
 #
@@ -17,7 +17,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 gem5root="$(cd "$here/../../.." && pwd)"
 
 BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
-GEM5="${GEM5:-$gem5root/build/gem5-lvx2.opt}"
+GEM5="${GEM5:-$gem5root/build/gem5-lvx-2.opt}"
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
 export LVX_CPU="${LVX_CPU:-atomic}"
 

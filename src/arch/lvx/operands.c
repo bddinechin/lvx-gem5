@@ -61,7 +61,7 @@
  * emits REGFILE(SFR) and Register_lvx_PC is the family-qualified name from lvx_enums.h
  * (same in both cores), so this file is identical for whichever core's generated/ dir
  * is compiled in -- that
- * is what lets one src/ tree build both gem5-lvx1 and gem5-lvx2.  The set below is
+ * is what lets one src/ tree build both gem5-lvx-1 and gem5-lvx-2.  The set below is
  * the union over both cores (they share it exactly, per the MDF merged RegClass
  * table); a core that adds a register file would fail to compile here until listed.
  * Register_lvx_PC is the family-qualified register name from lvx_enums.h. */

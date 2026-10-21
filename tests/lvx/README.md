@@ -110,8 +110,8 @@ assembles and compiles no RISC-V) -- see `../../../riscv-toolchain/README.md`
 for where that comes from and the one trap in using it.
 
 ```bash
-make -C tests/lvx/rv check                                 # on gem5-lvx1.opt
-make -C tests/lvx/rv check GEM5=$PWD/build/gem5-lvx2.opt   # on gem5-lvx2.opt
+make -C tests/lvx/rv check                                 # on gem5-lvx-1.opt
+make -C tests/lvx/rv check GEM5=$PWD/build/gem5-lvx-2.opt   # on gem5-lvx-2.opt
 ```
 
 `check` is `run` (the self-checking programs), then `diff` (the host FP

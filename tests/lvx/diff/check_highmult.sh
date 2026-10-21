@@ -20,7 +20,7 @@ BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
 # to be build/LVX/gem5.opt -- a single unnamed executable that is in fact the
 # lvx-2 build, so these ran lvx-1 programs on the lvx-2 ISS and nothing said
 # so. GEM5 still overrides, for chasing one core deliberately.
-GEM5="${GEM5:-$gem5root/build/gem5-lvx1.opt}"
+GEM5="${GEM5:-$gem5root/build/gem5-lvx-1.opt}"
 RUNCFG="$gem5root/tests/lvx/run_lvx.py"
 export LVX_CPU="${LVX_CPU:-atomic}"
 

@@ -2,8 +2,8 @@
 # toolchain (ADR-0004: LVX assembles and compiles no RISC-V; upstream does).
 #
 #   make            build every .elf
-#   make run        build and run them all on gem5-lvx1.opt
-#   make run GEM5=../../../build/gem5-lvx2.opt
+#   make run        build and run them all on gem5-lvx-1.opt
+#   make run GEM5=../../../build/gem5-lvx-2.opt
 #
 # RISCV points at the local prefix the toolchain was unpacked into; set it if
 # yours is elsewhere, or put riscv64-unknown-elf-gcc on PATH and pass
@@ -34,7 +34,7 @@ CFLAGS  = -B$(GCCEXEC) -ffp-contract=off -march=$(ARCH) -mabi=$(ABI) -mcmodel=me
 LDFLAGS = -nostdlib -nostartfiles -Wl,-Ttext=0x10000 -Wl,-e,_start
 
 HOSTCC ?= gcc
-GEM5   ?= $(CURDIR)/../../../build/gem5-lvx1.opt
+GEM5   ?= $(CURDIR)/../../../build/gem5-lvx-1.opt
 RUNCFG  = $(CURDIR)/../run_lvx.py
 
 TESTS = rv64i slt rv64ma rv64csr

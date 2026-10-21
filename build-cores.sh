@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build one gem5 ISS executable per LVX core (gem5-lvx1.opt, gem5-lvx2.opt).
+# Build one gem5 ISS executable per LVX core (gem5-lvx-1.opt, gem5-lvx-2.opt).
 #
 # WHY TWO: lvx-gcc development needs an ISS for each core (lvx_1 and the
 # 512-bit-SIMD lvx_2).  The MDS BE/GEM5 backend emits one core's decode +
@@ -12,7 +12,7 @@
 #
 # The second core only recompiles src/arch/lvx (the rest of gem5 is unchanged),
 # so the switch is cheap.  Note the leftover build/LVX afterwards holds the LAST
-# core built, in the last variant built; the copied gem5-lvx<N>.<variant> are
+# core built, in the last variant built; the copied gem5-lvx-<N>.<variant> are
 # the deliverables.
 #
 # Usage:  ./build-cores.sh [core ...]      (default: lvx_1 lvx_2)
@@ -31,7 +31,7 @@
 #     port's own invariants (the operand-snapshot guard in
 #     LvxStaticInst::executeMicro, the register-list bounds) still hold.
 #
-# Both land under build/ as gem5-lvx<N>.<variant>, and every harness defaults
+# Both land under build/ as gem5-lvx-<N>.<variant>, and every harness defaults
 # to the .opt name (GEM5/GEM5_LVX1/GEM5_LVX2 override it). So a `fast' binary
 # is opt-in, which also means it is the one that can go stale unnoticed: it is
 # not rebuilt by a plain `./build-cores.sh', and an ISS older than the source
@@ -60,7 +60,7 @@ if [ $# -eq 0 ]; then cores=(lvx_1 lvx_2); else cores=("$@"); fi
 
 for core in "${cores[@]}"; do
     n="${core#lvx_}"                       # lvx_1 -> 1
-    out="$here/build/gem5-lvx${n}.${variant}"
+    out="$here/build/gem5-lvx-${n}.${variant}"
     echo "=== $core: installing generated/ ==="
     # BE/GEM5 generates each core into its own $(core)/ subdir (glue included), so
     # `install GEM5_CORE=<core>` delivers exactly that core with no cross-core
@@ -81,5 +81,5 @@ echo
 echo "Built:"
 for core in "${cores[@]}"; do
     n="${core#lvx_}"
-    ls -la "$here/build/gem5-lvx${n}.${variant}"
+    ls -la "$here/build/gem5-lvx-${n}.${variant}"
 done

@@ -316,7 +316,7 @@ boundaries and what the LSQ step still needs.
 
 ### `gem5.fast` is available, and buys less than one might hope
 
-`VARIANT=fast ./build-cores.sh` builds `gem5-lvx<N>.fast` beside the `.opt`
+`VARIANT=fast ./build-cores.sh` builds `gem5-lvx-<N>.fast` beside the `.opt`
 binaries. Both are -O3; `.fast` adds NDEBUG and `TRACING_ON=0`, so it drops
 the asserts and the whole DPRINTF machinery, and `.opt` adds `-g`.
 

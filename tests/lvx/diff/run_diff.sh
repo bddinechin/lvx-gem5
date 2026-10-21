@@ -36,8 +36,8 @@ BIN="${LVX_TOOLCHAIN_BIN:-$gem5root/../lvx-toolchain/bin}"
 #
 # GEM5 still overrides both, for pinning the whole run to one simulator
 # deliberately.
-GEM5_LVX1="${GEM5_LVX1:-$gem5root/build/gem5-lvx1.opt}"
-GEM5_LVX2="${GEM5_LVX2:-$gem5root/build/gem5-lvx2.opt}"
+GEM5_LVX1="${GEM5_LVX1:-$gem5root/build/gem5-lvx-1.opt}"
+GEM5_LVX2="${GEM5_LVX2:-$gem5root/build/gem5-lvx-2.opt}"
 gem5_for() {
     [ -n "${GEM5:-}" ] && { printf '%s' "$GEM5"; return; }
     case "$1" in

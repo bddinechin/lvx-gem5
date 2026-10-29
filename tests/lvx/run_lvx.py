@@ -75,6 +75,12 @@ class _L1(Cache):
     response_latency = 1
     mshrs = 4
     tgts_per_mshr = 8
+    # Honour Request::NO_ALLOCATE, which the shim sets on a `.u'/`.us' load:
+    # the line is not installed here, but one already here is still read. Only
+    # this level honours it -- the L2 below must not, or the access would fall
+    # through the whole hierarchy to DRAM, which is UNCACHEABLE and three
+    # times the cost the description gives a MemoryLevel=2 access.
+    honour_no_allocate = True
 
 
 # A second level, because the description says there is one. The `variant'

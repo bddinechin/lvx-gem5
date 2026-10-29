@@ -163,6 +163,17 @@ class BaseCache(ClockedObject):
     # cache a line is dropped for a mostly exclusive cache.
     clusivity = Param.Clusivity("mostly_incl", "Clusivity with upstream cache")
 
+    # Whether this cache honours a request's Request::NO_ALLOCATE hint: an
+    # access that must not allocate a line here, but is still served from
+    # here if the line is already present. Per-cache, because the hint says
+    # "not in this level" -- a hint every level obeyed would send the access
+    # to memory, which is what UNCACHEABLE does. So set it on the level the
+    # architecture names and leave it off below, or the access falls through
+    # the whole hierarchy.
+    honour_no_allocate = Param.Bool(
+        False, "Honour the per-request Request::NO_ALLOCATE hint"
+    )
+
     # The write allocator enables optimizations for streaming write
     # accesses by first coalescing writes and then avoiding allocation
     # in the current cache. Typically, this would be enabled in the

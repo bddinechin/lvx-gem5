@@ -167,6 +167,25 @@ class Request : public Extensible<Request>
         PF_EXCLUSIVE                = 0x02000000,
         /** The request should be marked as LRU. */
         EVICT_NEXT                  = 0x04000000,
+        /**
+         * The request must not allocate a line in a cache that is
+         * configured to honour the hint (BaseCache's honour_no_allocate),
+         * but may still be served by one that already holds the line.
+         *
+         * This is a *hint*, and deliberately not UNCACHEABLE: an
+         * uncacheable request is forwarded without allocating by every
+         * level it passes through, which takes it to memory, whereas an
+         * architecture's non-temporal or streaming access generally means
+         * "do not pollute the first level" and expects the next one to
+         * serve it. Scoping that to particular caches is what the
+         * per-cache parameter is for -- a flag every level obeyed would
+         * just be UNCACHEABLE again.
+         *
+         * Because it only suppresses allocation, a hit is unaffected: a
+         * line already present is read (and, for a write, written) as
+         * usual, so the hint cannot be observed as stale data.
+         */
+        NO_ALLOCATE                 = 0x08000000,
         /** The request should be marked with ACQUIRE. */
         ACQUIRE                     = 0x00020000,
         /** The request should be marked with ACQUIRE_PC. */
@@ -1031,6 +1050,7 @@ class Request : public Extensible<Request>
         return (_flags.isSet(PREFETCH | PF_EXCLUSIVE));
     }
     bool isPrefetchEx() const { return _flags.isSet(PF_EXCLUSIVE); }
+    bool isNoAllocate() const { return _flags.isSet(NO_ALLOCATE); }
     bool isLLSC() const { return _flags.isSet(LLSC); }
     bool isPriv() const { return _flags.isSet(PRIVILEGED); }
     bool isLockedRMW() const { return _flags.isSet(LOCKED_RMW); }

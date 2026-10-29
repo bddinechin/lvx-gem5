@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "arch/lvx/generated/lvx_stages.h"
 #include "arch/lvx/regs/int.hh"
 #include "arch/lvx/regs/misc.hh"
 #include "arch/lvx/regs/vec.hh"
@@ -1275,9 +1276,29 @@ lvxByteRuns(uint64_t mask, struct LvxByteRun *runs)
     return count;
 }
 
+// The `variant' modifier's encoded value decides where the access is served
+// from: `.U' and `.US' carry MemoryLevel=2, so the line must not be allocated
+// in the first level -- though one already there is still read, the bypass
+// path snooping the L1 (Modifier.yml's note on PCR_L1CE). Which values those
+// are comes from the description, as LVX_VARIANT_NOALLOC_MASK; the loads with
+// no variant modifier are passed a literal 0 by the generated bodies, so they
+// read as level 1 and allocate.
+//
+// This is the placement half of the property. The pricing half is already
+// modelled -- LoadedAt=SR makes the functional unit charge 15 rather than 3
+// (reg_operands.inc's varLat) -- and the two now agree by construction, since
+// the L2 is tuned to exactly the 15 that SR - RR gives.
+static inline Request::Flags
+lvxLoadFlags(uint8_t modifier)
+{
+    const bool noAlloc = modifier < 8
+                      && ((LVX_VARIANT_NOALLOC_MASK >> modifier) & 1);
+    return noAlloc ? Request::Flags(Request::NO_ALLOCATE) : Request::Flags();
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
-                  uint8_t /*modifier*/, uint8_t /*dri*/)
+                  uint8_t modifier, uint8_t /*dri*/)
 {
     BehaviorContext *ctx = static_cast<BehaviorContext *>(self);
     Addr address = (Addr)addr;
@@ -1294,7 +1315,7 @@ Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
         std::vector<bool> byteEnable;
         unsigned size = lvxRequestShape(mask, byteEnable);
         if (size)
-            ctx->xc->initiateMemRead(address, size, Request::Flags(),
+            ctx->xc->initiateMemRead(address, size, lvxLoadFlags(modifier),
                                      byteEnable);
         return result;          // discarded; the MemComplete pass is the one
     }

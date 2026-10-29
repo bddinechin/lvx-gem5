@@ -194,7 +194,7 @@ NoncoherentCache::handleAtomicReqMiss(PacketPtr pkt, CacheBlk *&blk,
         // afterall it is a read response
         DPRINTF(Cache, "Block for addr %#llx being updated in Cache\n",
                 bus_pkt->getAddr());
-        blk = handleFill(bus_pkt, blk, writebacks, allocOnFill(bus_pkt->cmd));
+        blk = handleFill(bus_pkt, blk, writebacks, allocOnFill(bus_pkt));
         assert(blk);
     }
     satisfyRequest(pkt, blk);

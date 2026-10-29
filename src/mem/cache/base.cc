@@ -106,6 +106,7 @@ BaseCache::BaseCache(const BaseCacheParams &p, unsigned blk_size)
       numTarget(p.tgts_per_mshr),
       forwardSnoops(true),
       clusivity(p.clusivity),
+      honourNoAllocate(p.honour_no_allocate),
       isReadOnly(p.is_read_only),
       replaceExpansions(p.replace_expansions),
       moveContractions(p.move_contractions),
@@ -398,7 +399,7 @@ BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                 // port and also takes into account the additional
                 // delay of the xbar.
                 mshr->allocateTarget(pkt, forward_time, order++,
-                                     allocOnFill(pkt->cmd));
+                                     allocOnFill(pkt));
                 if (mshr->getNumTargets() >= numTarget) {
                     noTargetMSHR = mshr;
                     setBlocked(Blocked_NoTargets);

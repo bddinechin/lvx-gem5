@@ -440,8 +440,23 @@ class BaseCache : public ClockedObject
      * @param cmd Command of the incoming requesting packet
      * @return Whether we should allocate on the fill
      */
-    inline bool allocOnFill(MemCmd cmd) const
+    inline bool allocOnFill(const PacketPtr pkt) const
     {
+        // A per-request no-allocate hint, honoured only by a cache
+        // configured to (honour_no_allocate). It has to be answered here
+        // and from the request rather than from the command, because the
+        // command cannot carry it: an architecture's non-temporal load and
+        // its ordinary load are both a ReadReq, so this is the only point
+        // at which the two are still distinguishable.
+        //
+        // Allocation is all it suppresses. A line already in the cache is
+        // still found by access() and served from here, which is what a
+        // "does not pollute the cache" access means -- and what keeps the
+        // hint from being observable as stale data.
+        if (honourNoAllocate && pkt->req->isNoAllocate())
+            return false;
+
+        const MemCmd cmd = pkt->cmd;
         return clusivity == enums::mostly_incl ||
             cmd == MemCmd::WriteLineReq ||
             cmd == MemCmd::ReadReq ||
@@ -937,6 +952,14 @@ class BaseCache : public ClockedObject
     const enums::Clusivity clusivity;
 
     /**
+     * Whether this cache honours a request's Request::NO_ALLOCATE hint.
+     * Per-cache because the hint means "not in this level": if every level
+     * obeyed it the access would reach memory, which is what UNCACHEABLE
+     * already does and a different thing from not polluting the first level.
+     */
+    const bool honourNoAllocate;
+
+    /**
      * Is this cache read only, for example the instruction cache, or
      * table-walker cache. A cache that is read only should never see
      * any writes, and should never get any dirty data (and hence
@@ -1176,7 +1199,7 @@ class BaseCache : public ClockedObject
     {
         MSHR *mshr = mshrQueue.allocate(pkt->getBlockAddr(blkSize), blkSize,
                                         pkt, time, order++,
-                                        allocOnFill(pkt->cmd));
+                                        allocOnFill(pkt));
 
         if (mshrQueue.isFull()) {
             setBlocked((BlockedCause)MSHRQueue_MSHRs);

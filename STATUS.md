@@ -476,13 +476,17 @@ its functional unit, so bypassing L1 to hit L2 at 15 costs exactly what it
 costs today. The `check_hierarchy.sh` loop shows the three latencies -- 7
 bundles with the value used 4 bundles later, so `ld` at 9.75 cycles a trip
 hides its 3 entirely, `ld.u` at 20.92 exposes 11 of its 15, and either load
-from L2 costs 22.07.
+from L2 costs 20.93.
 
-The 22.07 against the 20.92 is **not** the price of bypassing, which an
-earlier version of this file said it was. It is the gap between this
-configuration's L2 response and the flat 15 the functional unit charges: the
-L2 is tuned to 15.4, and a dependent loop with queueing turns that 0.4 into
-about 1.15 a trip. A calibration residual, not a property of the bypass.
+Those last two agree **by construction** since 2026-10-29, and that is the
+point. They did not before: the L2 was tuned to about 15.4 cycles rather than
+the architectural 15, a dependent loop with queueing turned that 0.4 into
+about 1.15 a trip, and an earlier version of this file read the resulting
+22.07 against the 20.92 and called the difference the price of bypassing. It
+was a calibration residual. Tightening the L2 to 10/10/2 removed it, so a
+load sourced from level 2 and a `.u` load now cost the same thing -- which is
+what the description says they are, and what makes that misreading impossible
+to repeat.
 
 So the bypass is a correctness fix with no cycle effect on the access itself.
 Its effect is on *other* loads whose lines `.u` should not be evicting, which

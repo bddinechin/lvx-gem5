@@ -679,6 +679,24 @@ LvxStaticInst::finishBundle(ExecContext *xc, BundleExec &be) const
     const Addr fallThrough = base + bundleBytes;
 
     // Next PC: fall-through unless a (BCU) instruction wrote NPC.
+    //
+    // A bundle holds two BCU slots and both may transfer -- two taken
+    // conditional branches are a legal bundle (BCU availability is 2) -- so
+    // this is a priority mux, not a search: **BCU0 wins over BCU1**, taken or
+    // not, so the first slot that transfers is the one that does. Hence the
+    // break. Only a syllable that actually transferred has npcWritten set (a
+    // conditional branch writes NPC inside its own `if', so a not-taken one
+    // leaves it clear), which is what makes "first that wrote" mean "first
+    // taken" and lets BCU1 win when BCU0 falls through.
+    //
+    // subInsts is in ascending issue-slot order -- the constructor emits by
+    // Exu, and EXU_BCU0 is 0 -- so ascending i *is* BCU0 before BCU1. Note
+    // this is not the order the syllables executed in: buildMicroOrder puts
+    // every transfer last, and within that group in this same slot order.
+    // Every opcode that writes NPC is a BCU one, so no higher slot competes.
+    //
+    // Without the break the *last* writer won, i.e. BCU1 -- so a bundle with
+    // two taken branches went to the wrong one. tests/lvx/diff/brprio.s.
     Addr next = fallThrough;
     bool branched = false;
     unsigned xfer = 0;
@@ -692,6 +710,7 @@ LvxStaticInst::finishBundle(ExecContext *xc, BundleExec &be) const
             // that actually transferred, not a property of the bundle.
             xfer = subInsts[i].opcode < (unsigned)Opcode__NUM
                  ? lvx_reg_deps[subInsts[i].opcode].xfer : 0;
+            break;
         }
 
     // Hardware-loop back-edge (the fetch-engine mechanism, not any

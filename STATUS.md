@@ -268,6 +268,29 @@ unnoticed, and is no reason for the ISS to disagree with the architecture.
 Both are the invariants the micro-op split has to preserve, which is why they
 are tests and not comments.
 
+Writing it a third time, for *control*, found the third bug of the same shape.
+A bundle has two BCU slots, so two taken branches in one bundle is a legal
+bundle, and the architecture resolves it by slot: **BCU0 has priority over
+BCU1**, conditional or not, so the first slot that transfers is the one that
+does. `finishBundle` scanned every syllable for a written NPC and kept
+assigning with no `break`, so the *last* writer won -- BCU1 -- and a bundle
+with two taken branches went to the wrong target. One taken branch in either
+slot was already right, which is what hid it: it needs both slots taken at
+once, and GCC's bundler puts at most one transfer in a bundle, so no compiled
+code emits one. The loop is now a priority mux, and the comment says that
+`subInsts` is in ascending issue-slot order -- which is *not* the order the
+syllables executed in, `buildMicroOrder` having put every transfer last.
+Pinned by `check_brprio.sh`, five cases: the two with one slot taken catch the
+over-correction ("BCU0 wins whenever BCU0 is a branch"), the three with both
+taken catch the bug, two of those with one slot unconditional for the
+"conditional or not" half of the rule. Each verified by mutation.
+
+So all three levels of the same question -- registers, memory, control -- were
+wrong in the same direction, each because a bundle's syllables run in sequence
+here and the architecture says they do not. Only the *control* one is a
+priority rather than a parallel-read rule, which is why it needed its own
+test rather than falling out of the other two.
+
 ### The micro-op split landed, and the model was issuing two bundles a cycle
 
 A bundle is now a gem5 macroop whose syllables are micro-ops, one per occupied

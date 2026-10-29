@@ -14,6 +14,7 @@
 #include "arch/lvx/int256.h"
 #include "arch/lvx/types.hh"
 #include "base/types.hh"
+#include "sim/faults.hh"
 
 namespace gem5
 {
@@ -172,6 +173,24 @@ struct BehaviorContext
     // the same placement the functional path uses.
     int256_t memData = int256_zero;
 
+    // The fault the access raised, for initiateMicro to hand back to Minor.
+    // It has to travel out of the helper rather than be returned by it,
+    // because the helper's return value is the loaded data.
+    //
+    // Minor's contract (Execute::executeMemRefInst): whatever initiateAcc
+    // returns is the instruction's fault, and returning NoFault after a
+    // failed translation *suppresses* it -- which is the hook architectures
+    // with non-faulting loads use. This port returned NoFault unconditionally
+    // and so suppressed every one of them, silently: a load from an
+    // unmapped address left its destination untouched and the program ran on.
+    Fault memFault = NoFault;
+
+    // Set when a `.s'/`.us' load's fault was dismissed. Distinct from the
+    // memory-access predicate being false, which is GUARD suppressing the
+    // whole syllable and writing nothing: a dismissed load is NOT suppressed,
+    // it completes and writes its destination -- with zero.
+    bool memDismissed = false;
+
     // Shared with the other syllables of the bundle; owned by the caller.
     BundlePredication *predication = nullptr;
     BundleWriteLog *writeLog = nullptr;   // null outside a bundle: plain writes
@@ -207,6 +226,8 @@ struct BehaviorContext
         xc = nullptr;
         memPhase = MemFunctional;
         memData = int256_zero;
+        memFault = NoFault;
+        memDismissed = false;
         for (auto &s : operands) { s.value = int256_zero; s.flags = AccessNone; }
     }
 };

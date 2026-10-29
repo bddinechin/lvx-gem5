@@ -1296,6 +1296,19 @@ lvxLoadFlags(uint8_t modifier)
     return noAlloc ? Request::Flags(Request::NO_ALLOCATE) : Request::Flags();
 }
 
+// `.s' and `.us' are Dismissible: the load cannot fault, so a compiler may
+// hoist it above the test that guards it. Any fault it would have taken
+// becomes a non-fault that loads all-zero bits -- which is what makes the
+// hoist safe, since the value is only consumed when the guard passes. Which
+// encoded values those are comes from the description, as
+// LVX_VARIANT_DISMISS_MASK; it is 0x0a where the no-allocate mask is 0x0c,
+// the two overlapping on `.us' alone.
+static inline bool
+lvxDismissible(uint8_t modifier)
+{
+    return modifier < 8 && ((LVX_VARIANT_DISMISS_MASK >> modifier) & 1);
+}
+
 int256_t
 Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
                   uint8_t modifier, uint8_t /*dri*/)
@@ -1314,23 +1327,59 @@ Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
     if (ctx->memPhase == MemIssue) {
         std::vector<bool> byteEnable;
         unsigned size = lvxRequestShape(mask, byteEnable);
-        if (size)
-            ctx->xc->initiateMemRead(address, size, lvxLoadFlags(modifier),
-                                     byteEnable);
+        if (size) {
+            // The fault travels out through the context, not the return
+            // value, which is the loaded data. initiateMicro hands it to
+            // Minor; dropping it -- which this did until 2026-10-29 -- means
+            // Minor reads NoFault from initiateAcc and takes that as the
+            // instruction *suppressing* the fault, so every load from an
+            // unmapped address silently did nothing.
+            const Fault f = ctx->xc->initiateMemRead(
+                address, size, lvxLoadFlags(modifier), byteEnable);
+            if (f != NoFault && lvxDismissible(modifier)) {
+                ctx->memDismissed = true;
+                ctx->memData = int256_zero;     // all loaded bits zero
+            } else {
+                ctx->memFault = f;
+            }
+        }
         return result;          // discarded; the MemComplete pass is the one
     }
 
     // Functional SE-mode read (the simple CPUs, and the atomics).
+    //
+    // `tryReadBlob' rather than `readBlob' so a Dismissible load can answer
+    // zero where the proxy would otherwise be fatal. The translation policy
+    // is the proxy's default either way, so a dismissible load returns
+    // exactly what an ordinary one would wherever an ordinary one succeeds:
+    // only the failure is converted.
     SETranslatingPortProxy proxy(ctx->tc);
+    const bool dismiss = lvxDismissible(modifier);
     if (lvxLowRun(mask)) {
-        proxy.readBlob(address, result.bytes, __builtin_popcountll(mask));
+        const unsigned n = __builtin_popcountll(mask);
+        if (dismiss) {
+            if (!proxy.tryReadBlob(address, result.bytes, n))
+                return int256_zero;
+            return result;
+        }
+        proxy.readBlob(address, result.bytes, n);
         return result;
     }
     struct LvxByteRun runs[LVX_MAX_BYTE_RUNS];
     unsigned count = lvxByteRuns(mask, runs);
-    for (unsigned i = 0; i < count; i++)
-        proxy.readBlob(address + runs[i].start, result.bytes + runs[i].start,
-                       runs[i].length);
+    for (unsigned i = 0; i < count; i++) {
+        uint8_t *to = result.bytes + runs[i].start;
+        const Addr from = address + runs[i].start;
+        // All-zero on a fault, not zero for the run that faulted: the
+        // architectural statement is about the loaded value, so a partially
+        // mapped access dismisses whole.
+        if (dismiss) {
+            if (!proxy.tryReadBlob(from, to, runs[i].length))
+                return int256_zero;
+            continue;
+        }
+        proxy.readBlob(from, to, runs[i].length);
+    }
     return result;
 }
 

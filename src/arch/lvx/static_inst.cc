@@ -625,7 +625,24 @@ LvxStaticInst::initiateMicro(ExecContext *xc, trace::InstRecord *traceData,
     runPhase(be.ctx[i], subInsts[i].opcode, BehaviorExecute,
              subInsts[i].decoded);
     be.ctx[i].memPhase = MemFunctional;
-    return NoFault;
+
+    // A dismissed `.s'/`.us' load: the fault is gone and no request is in
+    // flight, so Minor must be told there is no access to wait for. Saying
+    // so with the memory-access predicate is what makes Execute call
+    // completeAcc(nullptr) at all -- it only does for a *disabled* access
+    // (execute.cc, the `!packet' arm) -- and completeMicro then writes the
+    // zero. Without this the destination keeps its old value, which is what
+    // every faulting load used to do.
+    if (be.ctx[i].memDismissed)
+        xc->setMemAccPredicate(false);
+
+    // Whatever the access raised. Minor's contract: a fault returned here is
+    // the instruction's, and NoFault after a failed translation means the
+    // instruction suppressed it deliberately. Returning NoFault
+    // unconditionally -- which this did until 2026-10-29 -- suppressed every
+    // page-table fault in the port, so a load from an unmapped address left
+    // its destination untouched and execution carried on.
+    return be.ctx[i].memFault;
 }
 
 // Second half: the response has arrived, so re-run the execute phase with the
@@ -642,7 +659,15 @@ LvxStaticInst::completeMicro(PacketPtr pkt, ExecContext *xc,
     // prepareMicro is not called again: the snapshot is the one initiateMicro
     // took, and re-running the head's fetch phase here would read registers
     // that older syllables of this same bundle have since committed.
-    const bool suppressed = !xc->readMemAccPredicate();
+    //
+    // A dismissed load reaches here with the predicate false -- that is how
+    // Execute was persuaded to call completeAcc with no packet -- but it is
+    // not suppressed: a Dismissible load that faults still completes and
+    // still writes its destination, with the zero initiateMicro staged in
+    // memData. GUARD suppressing a syllable writes nothing, and these two
+    // must not be confused.
+    const bool suppressed = !xc->readMemAccPredicate()
+                         && !be.ctx[i].memDismissed;
 
     if (!suppressed) {
         if (pkt && pkt->getSize() > 0) {

@@ -469,6 +469,16 @@ is no longer describing this machine. The latencies are a modelling choice;
 what is not a choice is that there are two levels and roughly what each costs,
 which the description fixes.
 
+**What the `.u` bypass is worth, measured 2026-10-29** (the
+`check_hierarchy.sh` fixture, one dependent load per trip): `ld` costs 9.75
+cycles a trip on an L1-resident set and 22.07 from L2; `ld.u` costs 20.92
+L1-resident and 22.07 from L2. So a bypassing `.u` would cost about 1.15
+cycles a trip more than today's non-bypassing one — 5%, because the 15-cycle
+functional-unit latency dominates and the L2's 15.4-cycle response is covered
+by it. The bypass is therefore a correctness fix rather than a performance
+one: its effect is on *other* loads whose lines `.u` should not be evicting,
+which needs a working set larger than any case measured so far to show.
+
 **What is still not modelled is `.u` actually bypassing L1** (the handoff's
 issue 2). It cannot be expressed as a gem5 request flag: `Request::UNCACHEABLE`
 makes `Cache::access` invalidate and forward without allocating, but *every*

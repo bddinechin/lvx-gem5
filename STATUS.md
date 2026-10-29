@@ -519,6 +519,28 @@ shim ignored. `check_noalloc.sh` pins both halves -- 67 D-cache misses against
 131 over two passes of 64 lines, the difference exactly the line count, and
 the value checks still passing when the allocation assertions are mutated off.
 
+**`Dismissible` is modelled since 2026-10-29 too**, which completes the
+modifier: `.s` and `.us` load all-zero bits where they would have faulted, so
+a compiler may hoist one above the test that guards it. On the functional path
+that is `tryReadBlob` in place of the fatal `readBlob`; through the LSQ it is
+a dismissal flag on the syllable's context, because the memory-access
+predicate cannot say it -- a predicate-false syllable writes nothing, while a
+dismissed load completes and writes zero. It does need the predicate false all
+the same, that being the only way `Execute` calls `completeAcc` with no packet
+(`execute.cc`'s `!packet` arm), so `completeMicro` keys on the flag instead.
+`LVX_VARIANT_DISMISS_MASK` is 0x0a against 0x0c, overlapping on `.us` alone.
+
+**Implementing it found that there were no faults to dismiss.** Minor's
+contract is that whatever `initiateAcc` returns is the instruction's fault,
+and `NoFault` after a failed translation means the instruction suppressed one
+deliberately -- the hook exists for architectures with non-faulting loads.
+This port returned `NoFault` unconditionally and dropped
+`initiateMemRead`'s return value, so **every** page-table fault was silently
+suppressed: a load from an unmapped address left its destination untouched and
+execution carried on, which made `ld` and `ld.s` indistinguishable and both
+wrong. A plain `ld` from an unmapped address is now a SEGV under `minor`. The
+whole ISS check suite is unchanged by that, so nothing was relying on it.
+
 **And "let the hierarchy decide" is not one flag away.** Turning
 `executeMemRefsAssumeFixedLatency` off adds exactly one cycle to a load, not a
 cache round trip: `ld` goes from 4 to 5 and `ld.u` from 16 to 17. The reason is

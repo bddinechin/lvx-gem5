@@ -171,6 +171,15 @@ per_copy() { echo $(( ($1 + COPIES / 2) / COPIES )); }
 
 # Hundredths of a cycle per copy, for the one assertion stated as a bound.
 hundredths_per_copy() { echo $(( ($1 * 100 + COPIES / 2) / COPIES )); }
+report_within() { # report_within <name> <got> <want> <tolerance>
+    d=$(( $2 - $3 )); [ "$d" -lt 0 ] && d=$(( -d ))
+    if [ "$d" -le "$4" ]; then
+        printf '%-46s PASS (%s)\n' "$1" "$2"
+    else
+        printf '%-46s FAIL (got %s, want %s +/-%s)\n' "$1" "$2" "$3" "$4"; rc=1
+    fi
+}
+
 report_under() { # report_under <name> <hundredths> <limit in hundredths>
     if [ "$2" -lt "$3" ]; then
         printf '%-46s PASS (%s.%02d/copy)\n' "$1" $(( $2 / 100 )) $(( $2 % 100 ))
@@ -274,8 +283,19 @@ report "ld.u costs SR-CR more per copy than ld" \
 #    then let two bundles issue in one cycle: the target of the latch branch
 #    went out beside the branch itself and the penalty vanished. A VLIW
 #    bundle is the issue unit and one issues per cycle, so it cannot.
-report "the in-loop branches add nothing to the penalty" \
-       "$(( ldb - ldb0 ))" "$(( ldu - ldu0 ))"
+#
+#    Within a cycle rather than exactly, because each of the four runs carries
+#    its own cold misses -- the same TRIPS-independent overhead the per-trip
+#    figures above are rounded for -- and a branch stall that overlaps one
+#    absorbs it or does not, depending on where the two land. The two binaries
+#    differ in code size by twenty bundles, so their compulsory fetches do not
+#    align, and the two deltas sat at 144 and 143 when the L2 was tightened to
+#    its architectural 15 on 2026-10-29. What is under test is whether twenty
+#    taken branches a trip cost anything: at LDTRIPS trips that would be
+#    hundreds of cycles, so a single cycle across a whole run is the
+#    measurement's own floor, not a penalty.
+report_within "the in-loop branches add nothing to the penalty" \
+       "$(( ldb - ldb0 ))" "$(( ldu - ldu0 ))" 1
 
 # 5. and so is the latch branch of a loop whose recurrence is a load.  The
 #    uncached loop absorbs it whole -- 16 cycles of recurrence against a

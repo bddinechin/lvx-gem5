@@ -85,16 +85,29 @@ class _L1(Cache):
 # architecture has something at 15, and the ISS asserted the 15 from the
 # description instead of producing it.
 #
-# The latencies are chosen so that the architectural numbers fall out: an L1
-# hit near 3 cycles (CR - RR) and an L1 miss that hits here near 15 (SR - RR).
-# They are a modelling choice, not a measurement of hardware -- what is not a
-# choice is that there are two levels and roughly what each costs, which the
-# description fixes.
+# The latencies are calibrated so that the architectural numbers fall out: an
+# L1 hit near 3 cycles (CR - RR) and an L1 miss that hits here near 15
+# (SR - RR). They are a modelling choice; what is not a choice is that there
+# are two levels and roughly what each costs, which the description fixes.
+#
+# Calibrated against a *behaviour* rather than a derived latency, because the
+# derived one misled once already. The target is that a load sourced from this
+# level costs what the flat 15-cycle functional unit of a `.u' load charges:
+# on check_hierarchy.sh's loop (7 bundles, the value used 4 bundles later)
+# `ld.u' hitting L1 is charged its 15 and costs 20.92 cycles a trip, so an
+# `ld' sourced from here should cost the same. Measured: 11/11/3 gave 22.07
+# and 10/10/2 gives 20.93.
+#
+# The 1.15 a trip that 11/11/3 cost above the flat 15 was briefly read as the
+# price of a `.u' load bypassing L1 -- it was this residual. Keeping the two
+# in agreement is what makes that misreading impossible: a load from level 2
+# and a `.u' load now cost the same thing, which is what the description says
+# they are.
 class _L2(Cache):
     assoc = 16
-    tag_latency = 11
-    data_latency = 11
-    response_latency = 3
+    tag_latency = 10
+    data_latency = 10
+    response_latency = 2
     mshrs = 16
     tgts_per_mshr = 8
 

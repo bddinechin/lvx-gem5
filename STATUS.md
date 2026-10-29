@@ -489,16 +489,35 @@ what the description says they are, and what makes that misreading impossible
 to repeat.
 
 So the bypass is a correctness fix with no cycle effect on the access itself.
-Its effect is on *other* loads whose lines `.u` should not be evicting, which
-needs a working set larger than any case measured so far to show.
+Its effect is on *other* loads whose lines `.u` should not be evicting.
 
-**What is still not modelled is `.u` actually bypassing L1** (the handoff's
-issue 2). It cannot be expressed as a gem5 request flag: `Request::UNCACHEABLE`
-makes `Cache::access` invalidate and forward without allocating, but *every*
-level does that, so the access lands in DRAM rather than at level 2. Doing it
-properly wants a per-request no-allocate honoured by the L1 alone -- a small
-gem5 change -- and until then a `.u` load still allocates in L1 and still hits
-there, charged its architectural 15.
+**It is modelled since 2026-10-29** (the handoff's issue 2, closed). The
+delay was that the wanted behaviour is narrower than "bypass": Modifier.yml is
+explicit that the bypass path *snoops* the L1, so a `.u` load must still see
+an earlier cached store to the same line -- the `PCR_L1CE` bit is coherency
+against other agents, not against the core's own stores. So it is not
+`Request::UNCACHEABLE`, which every level forwards without allocating and
+which therefore lands in DRAM at three times what the description gives a
+`MemoryLevel=2` access. It is "do not allocate on a miss, serve a hit
+normally", and gem5 already does precisely that internally -- `handleFill`
+with `allocate=false` completes out of `tempBlock` and installs nothing. What
+was missing was a way to ask for it per request at one level:
+
+- `Request::NO_ALLOCATE`, a generic hint and not an LVX flag in `ARCH_BITS`,
+  since the architecture-neutral cache is what honours it;
+- `allocOnFill()` takes the packet rather than the command, which is forced --
+  a `.u` load and an ordinary one are both a `ReadReq`, so the command cannot
+  tell them apart, and this is the one point where the question is asked;
+- `BaseCache.honour_no_allocate`, **per cache**: the L1 honours it and the L2
+  must not, or the access falls through the hierarchy and the hint is
+  `UNCACHEABLE` again.
+
+Which variants are MemoryLevel=2 comes from the description as
+`LVX_VARIANT_NOALLOC_MASK` (0x0c on both cores), and the generated bodies were
+already handing the decoded `variant` value to `MEM_load` as an argument the
+shim ignored. `check_noalloc.sh` pins both halves -- 67 D-cache misses against
+131 over two passes of 64 lines, the difference exactly the line count, and
+the value checks still passing when the allocation assertions are mutated off.
 
 **And "let the hierarchy decide" is not one flag away.** Turning
 `executeMemRefsAssumeFixedLatency` off adds exactly one cycle to a load, not a

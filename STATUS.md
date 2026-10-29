@@ -469,15 +469,24 @@ is no longer describing this machine. The latencies are a modelling choice;
 what is not a choice is that there are two levels and roughly what each costs,
 which the description fixes.
 
-**What the `.u` bypass is worth, measured 2026-10-29** (the
-`check_hierarchy.sh` fixture, one dependent load per trip): `ld` costs 9.75
-cycles a trip on an L1-resident set and 22.07 from L2; `ld.u` costs 20.92
-L1-resident and 22.07 from L2. So a bypassing `.u` would cost about 1.15
-cycles a trip more than today's non-bypassing one — 5%, because the 15-cycle
-functional-unit latency dominates and the L2's 15.4-cycle response is covered
-by it. The bypass is therefore a correctness fix rather than a performance
-one: its effect is on *other* loads whose lines `.u` should not be evicting,
-which needs a working set larger than any case measured so far to show.
+**What the `.u` bypass is worth: no cycles, and that follows from the two
+latencies rather than from a measurement.** An L1 hit is CR - RR = 3 and a
+`MemoryLevel=2` access is SR - RR = 15; a `.u` load is already charged 15 by
+its functional unit, so bypassing L1 to hit L2 at 15 costs exactly what it
+costs today. The `check_hierarchy.sh` loop shows the three latencies -- 7
+bundles with the value used 4 bundles later, so `ld` at 9.75 cycles a trip
+hides its 3 entirely, `ld.u` at 20.92 exposes 11 of its 15, and either load
+from L2 costs 22.07.
+
+The 22.07 against the 20.92 is **not** the price of bypassing, which an
+earlier version of this file said it was. It is the gap between this
+configuration's L2 response and the flat 15 the functional unit charges: the
+L2 is tuned to 15.4, and a dependent loop with queueing turns that 0.4 into
+about 1.15 a trip. A calibration residual, not a property of the bypass.
+
+So the bypass is a correctness fix with no cycle effect on the access itself.
+Its effect is on *other* loads whose lines `.u` should not be evicting, which
+needs a working set larger than any case measured so far to show.
 
 **What is still not modelled is `.u` actually bypassing L1** (the handoff's
 issue 2). It cannot be expressed as a gem5 request flag: `Request::UNCACHEABLE`

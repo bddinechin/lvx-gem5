@@ -73,7 +73,17 @@ for core in "${cores[@]}"; do
     # below reads $here/build/LVX and silently copies a stale binary.  Running from
     # a subshell so the caller's cwd is unchanged.
     ( cd "$here" && scons "build/LVX/gem5.$variant" -j"$jobs" )
-    cp "$here/build/LVX/gem5.$variant" "$out"
+    # Install by rename, not by writing over the target.  A deliverable that
+    # some run still has open cannot be *written* -- `cp' fails ETXTBSY,
+    # "Text file busy" -- but it can be replaced, because rename(2) swaps the
+    # directory entry and the running process keeps the inode it already
+    # mapped.  So a benchmark in progress is unaffected and the next run picks
+    # up the new binary.  With a plain `cp' this script died here instead
+    # (set -e), leaving the remaining cores unbuilt and, if the invocation was
+    # piped, the failure hidden behind the exit status of the pipeline --
+    # which is how a stale ISS of record survived a rebuild on 2026-10-29.
+    cp "$here/build/LVX/gem5.$variant" "$out.new"
+    mv -f "$out.new" "$out"
     echo "=== $core: -> $out ==="
 done
 

@@ -6,7 +6,7 @@
 # hand-written Behavior_ccbcomp shim helper, so the one self-checking program
 # (ccb_cmp.s) must pass on each.  We assemble it with the matching -march, link
 # with the shared crt0, run under the per-core gem5 binary, and require exit
-# code 0.  A nonzero code is the index (1..10) of the first ccbcomp case whose
+# code 0.  A nonzero code is the index (1..12) of the first ccbcomp case whose
 # branch decision was wrong -- see ccb_cmp.s.
 #
 # Env: LVX_TOOLCHAIN_BIN  GEM5_LVX1  GEM5_LVX2  LVX_CPU(atomic|timing|minor)

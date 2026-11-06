@@ -8,7 +8,7 @@
 	## Each case is built so that ONLY the correct branch decision reaches the next
 	## case; a wrong decision falls into `fail`.  $r0 holds the number of the case
 	## in progress, so the process exit code is 0 on full success or the index of
-	## the first failing case (1..10) otherwise.  Cases 3/4/5 pin the signed vs
+	## the first failing case (1..12) otherwise.  Cases 3/4/5 pin the signed vs
 	## unsigned split; 6/7/8 pin the 32- vs 64-bit width (high bits set so a D-vs-W
 	## confusion flips the result).
 	.section .text
@@ -121,6 +121,37 @@ c9:
 	goto fail
 	;;
 c10:
+	## case 11: `ccb' NOT taken, bundled with an unconditional `goto'.
+	##
+	## This is a decode test, not a comparison test.  `ccb' is bcucode1 = 00,
+	## which is also what an immediate-extension syllable carries in bits
+	## 28..27, so a `ccb' in BCU1 cannot be told from the BCU0 instruction's
+	## extension word: until CCB became a BCU0-only bundling class, this bundle
+	## was emitted goto-first and decoded as a lone `gotox' with a 54-bit
+	## offset, here and in the disassembler both.  The ISS would then branch
+	## into nowhere instead of reaching c11.
+	maked $r0 = 11
+	;;
+	maked $r1 = 5
+	;;
+	maked $r2 = 6
+	;;
+	ccb.deq $r1, $r2 ? fail ; goto c11
+	;;
+c11:
+	## case 12: `ccb' TAKEN, bundled with a `goto' to the failure path.
+	##
+	## Branch priority is by slot -- the first slot that transfers wins
+	## (check_brprio.sh) -- so this also pins WHICH slot the `ccb' is in: it
+	## reaches c12 only if the `ccb' is in BCU0 and the `goto' in BCU1.  Swap
+	## them and the `goto' wins and the test exits 12.  brprio.s covers the
+	## same rule with `cb', whose bcucode1 is 01 and which therefore never had
+	## the ambiguity.
+	maked $r0 = 12
+	;;
+	ccb.dne $r1, $r2 ? c12 ; goto fail
+	;;
+c12:
 	## all cases behaved correctly
 	maked $r0 = 0
 	;;

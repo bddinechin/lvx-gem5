@@ -198,7 +198,8 @@ Scoreboard::clearInstDests(MinorDynInstPtr inst, bool clear_unpredictable)
             numResults[index] --;
 
             if (numResults[index] == 0) {
-                returnCycle[index] = Cycles(0);
+                if (!keepReturnCycle)
+                    returnCycle[index] = Cycles(0);
                 writingInst[index] = 0;
                 fuIndices[index] = invalidFUIndex;
             }

@@ -78,6 +78,8 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
       setTraceTimeOnCommit(params.executeSetTraceTimeOnCommit),
       setTraceTimeOnIssue(params.executeSetTraceTimeOnIssue),
       allowEarlyMemIssue(params.executeAllowEarlyMemoryIssue),
+      bundleMemIssue(params.executeBundleMemoryIssue),
+      memRefAddressLat(params.executeMemRefAddressLat),
       oneMacroopPerCycle(params.executeOneMacroopPerCycle),
       memRefsAssumeFixedLatency(params.executeMemRefsAssumeFixedLatency),
       noCostFUIndex(fuDescriptions.funcUnits.size() + 1),
@@ -105,6 +107,12 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
         fatal("%s: executeCommitLimit must be >= 1 (%d)\n", name_,
             issueLimit);
     }
+
+    fatal_if(memRefAddressLat != Cycles(0) &&
+             !(params.nonBlockingFuncUnits &&
+               params.executeMemRefsAssumeFixedLatency),
+        "%s: executeMemRefAddressLat needs nonBlockingFuncUnits and"
+        " executeMemRefsAssumeFixedLatency", name_);
 
     if (memoryIssueLimit < 1) {
         fatal("%s: executeMemoryIssueLimit must be >= 1 (%d)\n", name_,
@@ -195,6 +203,7 @@ Execute::Execute(const std::string &name_, MinorCPU &cpu_,
 
         /* Scoreboards */
         scoreboard.emplace_back(name_ + ".scoreboard" + tid_str, regClasses);
+        scoreboard.back().keepReturnCycle = memRefAddressLat != Cycles(0);
 
         /* In-flight instruction records */
         executeInfo[tid].inFlightInsts =  new Queue<QueuedInst,
@@ -1411,9 +1420,7 @@ Execute::commit(ThreadID thread_id, bool only_commit_microops, bool discard,
                      *  elapsed, stamping the cycle commit may take it from;
                      *  it has been waiting its turn here rather than holding
                      *  the FU against everything behind it. */
-                    if (inst->fuCompleted &&
-                        inst->fuCompleteCycle <= cpu.curCycle())
-                    {
+                    if (leftFU(inst, cpu.curCycle())) {
                         try_to_commit = true;
                         completed_inst = true;
                     } else {
@@ -1627,6 +1634,120 @@ Execute::commit(ThreadID thread_id, bool only_commit_microops, bool discard,
             }
         }
     }
+
+    /* Commit has stopped at a head it cannot retire this cycle.  If that
+     *  head is part-way through a macro-op, the macro-op's other memory
+     *  micro-ops need not wait their turn at the head to be sent. */
+    if (bundleMemIssue && !only_commit_microops && !discard &&
+        fault == NoFault && !branch.isStreamChange())
+    {
+        issueBundleMemSiblings(thread_id);
+    }
+}
+
+bool
+Execute::leftFU(const MinorDynInstPtr &inst, Cycles now) const
+{
+    if (memRefAddressLat != Cycles(0) && inst->isMemRef())
+        return inst->issueCycle + memRefAddressLat <= now;
+    return inst->fuCompleted && inst->fuCompleteCycle <= now;
+}
+
+void
+Execute::issueBundleMemSiblings(ThreadID thread_id)
+{
+    ExecuteThreadInfo &ex_info = executeInfo[thread_id];
+    auto &in_flight = *ex_info.inFlightInsts;
+
+    if (in_flight.empty())
+        return;
+
+    const MinorDynInstPtr head = in_flight.front().inst;
+
+    if (head->isBubble() || head->isFault() || !head->isInst() ||
+        head->isLastOpInInst() ||
+        head->id.streamSeqNum != ex_info.streamSeqNum)
+    {
+        return;
+    }
+
+    /* The macro-op must already be executing: an earlier micro-op of it
+     *  has committed, or the head itself has been sent to the LSQ.  That is
+     *  what makes every older macro-op committed, and -- for an LVX bundle
+     *  -- what has taken the bundle's operand snapshot (LvxStaticInst::
+     *  prepareMicro), which the sibling's initiateAcc reads from. */
+    if (head->pc->microPC() == 0 && !head->inLSQ)
+        return;
+
+    const Addr base = head->pc->instAddr();
+    const Cycles now = cpu.curCycle();
+
+    for (unsigned int i = 1; i < in_flight.occupiedSpace(); i++) {
+        MinorDynInstPtr inst = in_flight.at(i).inst;
+
+        if (inst->isBubble() || inst->isFault() || !inst->isInst() ||
+            inst->pc->instAddr() != base ||
+            inst->id.streamSeqNum != ex_info.streamSeqNum)
+        {
+            break;
+        }
+
+        if (inst->isMemRef() && !inst->inLSQ) {
+            /* Sent in order: the first that cannot go stops the scan, so
+             *  the LSQ still sees this macro-op's accesses in micro-op
+             *  order. */
+            if (inst->bundleIssueFailed ||
+                !leftFU(inst, now) ||
+                inst->extraCommitDelay != Cycles(0) ||
+                inst->extraCommitDelayExpr ||
+                inst->minimumCommitCycle > now ||
+                !lsq.canRequest())
+            {
+                break;
+            }
+
+            if (lsq.getLastMemBarrier(thread_id) != 0 &&
+                lsq.getLastMemBarrier(thread_id) < inst->id.execSeqNum)
+            {
+                break;
+            }
+
+            BranchData no_branch;
+            Fault fault = NoFault;
+            bool committed = false;
+            bool issued = false;
+
+            DPRINTF(MinorExecute, "Issuing bundle sibling mem ref: %s"
+                " behind head: %s\n", *inst, *head);
+
+            const bool done = commitInst(inst, true, no_branch, fault,
+                committed, issued);
+
+            /* A fault, or anything commitInst would want to act on, is
+             *  left for the in-order path to meet when this micro-op is the
+             *  head. */
+            panic_if(!no_branch.isBubble(),
+                "%s: bundle sibling mem ref %s raised a branch",
+                name(), *inst);
+
+            if (!done || !issued || fault != NoFault) {
+                inst->bundleIssueFailed = true;
+                break;
+            }
+
+            inst->fuIndex = 0;
+            inst->inLSQ = true;
+
+            if (!ex_info.inFUMemInsts->empty() &&
+                ex_info.inFUMemInsts->front().inst == inst)
+            {
+                ex_info.inFUMemInsts->pop();
+            }
+        }
+
+        if (inst->isLastOpInInst())
+            break;
+    }
 }
 
 bool
@@ -1778,6 +1899,9 @@ Execute::evaluate()
                 head_inst_might_commit = true;
             } else if (nonBlockingFuncUnits) {
                 if (head_inst.inst->fuCompleted ||
+                    (memRefAddressLat != Cycles(0) &&
+                     head_inst.inst->isMemRef() &&
+                     !head_inst.inst->inLSQ) ||
                     lsq.findResponse(head_inst.inst))
                 {
                     head_inst_might_commit = true;
@@ -1977,8 +2101,8 @@ Execute::getCommittingThread()
                     if (nonBlockingFuncUnits) {
                         /* The instruction is not parked at its FU's end any
                          *  more; it carries the cycle it completed. */
-                        can_execute_fu_inst = inst->fuCompleted &&
-                            inst->fuCompleteCycle <= cpu.curCycle();
+                        can_execute_fu_inst =
+                            leftFU(inst, cpu.curCycle());
                     } else {
                         QueuedInst& fu_inst =
                             funcUnits[inst->fuIndex]->front();

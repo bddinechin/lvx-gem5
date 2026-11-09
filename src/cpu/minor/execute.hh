@@ -114,6 +114,13 @@ class Execute : public Named
      *  of the in flight insts queue if their dependencies are met */
     bool allowEarlyMemIssue;
 
+    /** Send the memory micro-ops of the commit head's macro-op to the LSQ
+     *  together.  See BaseMinorCPU.py's executeBundleMemoryIssue. */
+    bool bundleMemIssue;
+
+    /** See BaseMinorCPU.py's executeMemRefAddressLat. */
+    Cycles memRefAddressLat;
+
     /** Issue at most one macro-op per cycle; see
      *  BaseMinorCPU.py's executeOneMacroopPerCycle. */
     bool oneMacroopPerCycle;
@@ -337,6 +344,16 @@ class Execute : public Named
      *  branch is set to any branch raised during commit. */
     void commit(ThreadID thread_id, bool only_commit_microops, bool discard,
         BranchData &branch);
+
+    /** executeBundleMemoryIssue: after commit has stopped at a head that is
+     *  waiting (for its memory response or its latency), issue the memory
+     *  micro-ops queued behind it that belong to the same macro-op. */
+    void issueBundleMemSiblings(ThreadID thread_id);
+
+    /** nonBlockingFuncUnits: may commit take `inst' from its FU at `now'?
+     *  Its FU end, or for a memory reference under memRefAddressLat, its
+     *  address-generation latency after issue. */
+    bool leftFU(const MinorDynInstPtr &inst, Cycles now) const;
 
     /** Set the drain state (with useful debugging messages) */
     void setDrainState(ThreadID thread_id, DrainState state);

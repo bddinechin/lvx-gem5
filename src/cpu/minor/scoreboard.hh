@@ -108,6 +108,14 @@ class Scoreboard : public Named
     std::vector<InstSeqNum> writingInst;
 
   public:
+    /** Keep a register's returnCycle when its last writer commits.
+     *  Normally an instruction commits no earlier than the cycle its
+     *  results were promised for, so clearing is harmless; under
+     *  Execute's executeMemRefAddressLat a memory reference may commit
+     *  before its fixed result latency has elapsed, and a consumer must
+     *  still wait for it.  A returnCycle in the past constrains nothing. */
+    bool keepReturnCycle = false;
+
     Scoreboard(const std::string &name,
             const BaseISA::RegClasses& reg_classes) :
         Named(name),

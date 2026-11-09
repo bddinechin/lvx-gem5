@@ -477,6 +477,30 @@ class BaseMinorCPU(BaseCPU):
         " they need not.",
     )
 
+    executeMemRefAddressLat = Param.Cycles(
+        0,
+        "Requires nonBlockingFuncUnits and executeMemRefsAssumeFixedLatency."
+        "  When non-zero, a memory reference may be sent to the LSQ (by"
+        " in-order commit) this many cycles after it issued, instead of when"
+        " its functional unit's opLat has elapsed.  The FU's opLat remains"
+        " the result latency the scoreboard enforces on consumers, so this"
+        " separates when the access is made from when its result may be"
+        " used: a long fixed load latency no longer holds every younger"
+        " instruction at commit.  0 keeps the FU end as the issue point.",
+    )
+    executeBundleMemoryIssue = Param.Bool(
+        False,
+        "Once the head of the in-flight queue is a micro-op of a macro-op"
+        " (a VLIW bundle) whose earlier micro-ops have all committed, send"
+        " that macro-op's remaining memory micro-ops to the LSQ in the same"
+        " cycle instead of one per head commit.  Their responses still"
+        " commit in order.  Compatible with nonBlockingFuncUnits, unlike"
+        " executeAllowEarlyMemoryIssue, because it reads the in-flight queue"
+        " rather than the FU ends.  Only correct for an ISA whose micro-ops"
+        " of one macro-op read their operands before any of them writes:"
+        " the access is initiated before older micro-ops of the same"
+        " macro-op have committed.",
+    )
     executeAllowEarlyMemoryIssue = Param.Bool(
         True,
         "Allow mem refs to be issued to the LSQ before reaching the head of"

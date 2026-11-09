@@ -204,6 +204,12 @@ class MinorDynInst : public RefCounted
     bool fuCompleted = false;
     Cycles fuCompleteCycle{0};
 
+    /** Execute's bundle memory issue tried to send this memory micro-op to
+     *  the LSQ ahead of the commit head and initiateAcc faulted.  It is not
+     *  tried again: it waits to reach the head and faults there, in order,
+     *  as it would have without the early attempt. */
+    bool bundleIssueFailed = false;
+
     /** Cycle in which this instruction issued.  Set by Execute::issue, and
      *  distinct from the cycle it is committed in: an instruction behind a
      *  long-latency one in the in-order commit queue can wait many cycles

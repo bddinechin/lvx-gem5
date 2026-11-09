@@ -165,12 +165,31 @@ class LvxMinorCPU(BaseMinorCPU, LvxCPU):
     # the hierarchy alone decides, is a modelling decision about what the
     # description's 15 cycles means when the configuration has no L2.
     executeMemRefsAssumeFixedLatency = True
+    # ... but the fixed latency is when the *result* may be read, not when the
+    # access is made. A load's FU is its result bucket (SR for `ld.u', 15
+    # cycles), and without this the request reached the LSQ only when that FU
+    # finished, so every younger bundle -- a loop's exit branch included --
+    # waited the full 15 behind it at in-order commit even when nothing
+    # depended on it: SAXPY's first trip with `lwz.us' cost 43 against 34.
+    # The address is formed at E1, so the access goes out from there; the
+    # scoreboard still holds consumers to the result stage.
+    executeMemRefAddressLat = LVX_STAGE_E1 - LVX_STAGE_RR
     # The early mem-issue path is what cannot coexist with non-blocking
     # functional units: it reaches for the instruction at its FU's end, and a
     # non-blocking unit has already let it go. Normal in-order commit of a
     # memory reference never consults the FU, so switching this off is what
     # lets the load shadow and the queue both work.
     executeAllowEarlyMemoryIssue = False
+    # What it can have instead: a bundle's loads and stores are
+    # architecturally parallel -- two LSU slots -- so once the bundle has
+    # started committing, its remaining memory micro-ops go to the LSQ in the
+    # same cycle rather than one per head commit. Without this, the two
+    # `lwz' of one bundle reached the D-cache a cycle (or two) apart and a
+    # memory-dense pipelined kernel ran ~1 access per cycle: SAXPY at II=2,
+    # 34 cycles a 16-iteration trip statically, took 48-51. Responses still
+    # commit in order, and the bundle's operand snapshot is already live,
+    # which is the condition early issue across bundles does not meet.
+    executeBundleMemoryIssue = True
     # Deliberately permissive. Two LSU slots issue per cycle, and a load
     # shadow means several accesses in flight at once -- an uncached load is
     # 15 cycles and a bundle may issue every cycle. Sized so that the queues
@@ -178,9 +197,12 @@ class LvxMinorCPU(BaseMinorCPU, LvxCPU):
     # are the real limit on concurrency. Tightening these to a machine is a
     # separate exercise, and wants measurements rather than guesses.
     executeLSQRequestsQueueSize = 2
-    executeLSQTransfersQueueSize = 8
+    # The load return queue is 32 deep: up to 32 accesses awaiting their
+    # data. The transfers queue holds every request between the cache and
+    # in-order commit, and the in-memory bound counts the same population.
+    executeLSQTransfersQueueSize = 32
     executeLSQStoreBufferSize = 8
-    executeMaxAccessesInMemory = 8
+    executeMaxAccessesInMemory = 32
     # The architectural bound here is the LSU availability (2), not the issue
     # width -- but nothing is routed through the LSQ yet, so these are inert;
     # they are set permissive rather than wrong, and want the real bound when

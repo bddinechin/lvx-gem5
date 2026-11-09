@@ -474,6 +474,11 @@ class Queue : public Named, public Reservable
     /** Number of slots already occupied in this buffer */
     unsigned int occupiedSpace() const { return queue.size(); }
 
+    /** Look at, without removing, the entry `i' places behind the front.
+     *  Execute's bundle memory issue scans the in-flight queue past its
+     *  head for the head's sibling micro-ops. */
+    ElemType &at(unsigned int i) { return queue.at(i); }
+
     /** Number of slots which are reserved. */
     unsigned int reservedSpace() const { return numReservedSlots; }
 

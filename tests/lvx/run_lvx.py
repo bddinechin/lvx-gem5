@@ -123,7 +123,10 @@ if cpu_kind == "atomic":
     cpu.dcache_port = system.membus.cpu_side_ports
 else:
     cpu.icache = _L1(size="32kB")
-    cpu.dcache = _L1(size="32kB")
+    # 32 MSHRs on the data side, matching the 32-deep load return queue
+    # (LvxCPU.py's LSQ sizing): with the default 4, no more than four misses
+    # could be outstanding however deep the core's queue.
+    cpu.dcache = _L1(size="32kB", mshrs=32)
     cpu.icache.cpu_side = cpu.icache_port
     cpu.dcache.cpu_side = cpu.dcache_port
     system.l2bus = L2XBar()

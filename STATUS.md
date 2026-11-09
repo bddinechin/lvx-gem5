@@ -452,6 +452,55 @@ that. Misses are hidden when there is work to hide them behind and exposed
 when there is not, which is the behaviour one wants; what the fixed latency
 buys is that *dependents* do not wait, not that misses are cheap.
 
+### Memory accesses issue per bundle, and at E1 (2026-11-09)
+
+Two limits made a memory-dense pipelined kernel run at about one D-cache
+access per cycle. SAXPY at II=2 is 34 cycles per 16-iteration trip
+statically, and took 48-51:
+
+- **One access per head commit.** A memory micro-op went to the LSQ only at
+  the head of in-order commit, so even the two loads of one bundle were sent
+  serially. `executeBundleMemoryIssue` sends the rest of a bundle's memory
+  micro-ops in the cycle its first one reaches the head, in micro-op order.
+  Responses still commit in order. Steady-state trips are now exactly 34.
+- **The access waited for the result latency.** With
+  `executeMemRefsAssumeFixedLatency`, a load's FU opLat is its result stage,
+  so `ld.u` reached memory at issue+15, and everything younger, a loop's exit
+  branch included, waited behind it at commit. `executeMemRefAddressLat`
+  (E1-RR) sends the access from E1 instead, and the scoreboard keeps the
+  result's return cycle when the load commits early
+  (`Scoreboard::keepReturnCycle`), so consumers still wait the architectural
+  latency. `.us` SAXPY's loop exit now costs what plain's does: the first
+  epilogue bundle issues at cycle 172 against 171, where it was 192.
+
+**Plain-load runs got ~12 cycles slower per SAXPY call, and that is the fix
+showing, not a regression.** `takenBranchBubble` is anchored at the branch's
+issue but applied at its commit. While commit trailed issue by a load's 15
+cycles, the bubble had already expired when the branch committed, so taken
+branches behind loads cost ~1 cycle instead of the intended ~4. Cycle counts
+from before this change undercharge taken branches that follow loads.
+
+The load return queue is 32 deep: `executeLSQTransfersQueueSize` and
+`executeMaxAccessesInMemory` are 32, and the L1 D-cache has 32 MSHRs
+(`run_lvx.py`).
+
+**Open: the D-cache returns at most one response per CPU cycle.** gem5's
+generic `PacketQueue` sends one packet per event and pushes the next to
+`curTick()+1` (`src/mem/packet_queue.cc:167`, "@todo Revisit the +1"). Two
+loads sent in the same cycle therefore return 1 tick apart, and the second
+misses the clock edge and is seen a cycle late. SAXPY hides it (its store
+bundle commits in that cycle anyway), but back-to-back two-load bundles would
+fall back to about one load per cycle. Fixing it means changing the shared
+memory system, or giving the D-cache's CPU side a queue that sends every
+ready packet per tick.
+
+**Open: `validation/tests/micro/maskwiden.c` fails under `LVX_CPU=minor` on
+lvx-2** (x86 4242, ISS 1024) and passes under atomic. It predates the
+changes above (it fails identically on the 2026-11-03 binary) and is not yet
+diagnosed. Validation normally runs under atomic, which is why it went
+unnoticed. Some timing-model path, plausibly the LSQ or the micro-op
+snapshot, computes a different value than the functional path.
+
 ### There are two levels now, and the second one costs what the ISA says
 
 The description's two load latencies describe two levels: `ld` writes at CR, 3

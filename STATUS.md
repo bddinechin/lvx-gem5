@@ -494,12 +494,17 @@ fall back to about one load per cycle. Fixing it means changing the shared
 memory system, or giving the D-cache's CPU side a queue that sends every
 ready packet per tick.
 
-**Open: `validation/tests/micro/maskwiden.c` fails under `LVX_CPU=minor` on
-lvx-2** (x86 4242, ISS 1024) and passes under atomic. It predates the
-changes above (it fails identically on the 2026-11-03 binary) and is not yet
-diagnosed. Validation normally runs under atomic, which is why it went
-unnoticed. Some timing-model path, plausibly the LSQ or the micro-op
-snapshot, computes a different value than the functional path.
+**Fixed 2026-11-12: `validation/tests/micro/maskwiden.c` failed under
+`LVX_CPU=minor` on both cores** (x86 4242, ISS 1024) and passed under atomic.
+The failure predated the changes above, and validation normally runs under
+atomic, which is why nobody noticed. The cause was the timing path of a
+`maskm`'d load. gem5's `byte_enable` keeps the hierarchy off the disabled
+bytes, but the response packet still carries all `size` bytes, and the
+disabled ones hold whatever the line held. `Behavior_MEM_load` returned them
+as loaded. The functional path starts from zero and reads only the enabled
+runs. So the test's 0x0F0F mask over four i32 lanes read lane 1 back as 22
+instead of 0. Lane 3 escaped, because it lies past the request's extent. The
+`MemComplete` pass now clears every byte the mask does not enable.
 
 ### There are two levels now, and the second one costs what the ISA says
 

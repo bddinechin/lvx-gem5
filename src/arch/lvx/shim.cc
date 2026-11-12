@@ -1322,8 +1322,20 @@ Behavior_MEM_load(void *self, uint64_t addr, int256_t byteMask,
     // MemPhase (shim.hh). This is the only path on which the data cache is
     // accessed at all -- the proxy read below is functional and reaches
     // memory without the hierarchy seeing a request.
-    if (ctx->memPhase == MemComplete)
-        return ctx->memData;
+    // The disabled bytes are cleared here, not trusted to the packet: gem5's
+    // byte_enable says which bytes the hierarchy must not touch, but the
+    // response still carries all `size' bytes, and the disabled ones hold
+    // whatever the cache line held. The functional path below starts from
+    // zero and reads only the runs, so it never saw this. Until 2026-11-12
+    // a MASKM'd load under minor returned the gaps unmasked (maskwiden.c's
+    // 0x0F0F mask: lane 1 came back as 22, not 0).
+    if (ctx->memPhase == MemComplete) {
+        result = ctx->memData;
+        for (unsigned i = 0; i < sizeof(result.bytes); i++)
+            if (!((mask >> i) & 1))
+                result.bytes[i] = 0;
+        return result;
+    }
     if (ctx->memPhase == MemIssue) {
         std::vector<bool> byteEnable;
         unsigned size = lvxRequestShape(mask, byteEnable);
